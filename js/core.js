@@ -39,7 +39,7 @@
   const NAV = [
     ['home', '#/home', '🏠', '工作台', 'Today'], ['list', '#/list', '📇', '客户', 'Clients'], ['prospect', '#/prospect', '🔎', '找客户', 'Prospecting'],
     ['templates', '#/templates', '✉️', '话术模板', 'Templates'], ['markets', '#/markets', '🌍', '目标市场', 'Markets'],
-    ['pool', '#/pool', '🌊', '公海', 'Pool', 'admin'], ['dash', '#/dashboard', '📊', '团队看板', 'Dashboard', 'admin'], ['admin', '#/admin', '⚙️', '管理', 'Admin', 'admin']
+    ['pool', '#/pool', '🌊', '公海', 'Pool'], ['dash', '#/dashboard', '📊', '团队看板', 'Dashboard', 'admin'], ['admin', '#/admin', '⚙️', '管理', 'Admin', 'admin']
   ];
   UI.shell = (inner, active) => {
     const admin = UI.ME.role === 'admin', nav = NAV.filter(n => !n[5] || admin), od = UI.overdue(UI.CLIENTS.filter(c => c.owner_id === UI.ME.id)).length;

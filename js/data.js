@@ -89,6 +89,12 @@
       Object.assign(c, patch, { updated_at: nowISO() }); this.audit(id, action || ('owner_id' in d ? 'assign' : 'update'), d); this.save(); return { ...c };
     },
     async bulkUpdate(ids, patch) { let n = 0; for (const id of ids) { await this.updateClient(id, { ...patch }); n++; } return n; },
+    async claimClient(id) {
+      const db = this.load(), c = db.clients.find(x => x.id === id), me = this.me();
+      if (!me || me.role !== 'sales') throw new Error('只有业务员可以从公海领取客户');
+      if (!c || c.owner_id) throw new Error('该客户已被领取或不在公海');
+      c.owner_id = me.id; c.updated_at = nowISO(); this.audit(id, 'claim', { owner_id: me.id }); this.save(); return { ...c };
+    },
     async deleteClient(id) {
       if (!this.admin()) throw new Error('业务员无删除权限'); const db = this.load(), c = db.clients.find(x => x.id === id);
       db.clients = db.clients.filter(x => x.id !== id); ['logs', 'quotes', 'samples'].forEach(k => db[k] = db[k].filter(l => l.client_id !== id));
@@ -166,6 +172,7 @@
     async checkDuplicate({ name, website, phone }) { return this.chk(await this.init().rpc('check_duplicate', { p_name: U.nameKey(name), p_domain: U.domain(website), p_phone: U.phoneKey(phone) })); },
     async createClient(d, opts = {}) { const me = this.profile; d = { ...d, owner_id: me.role === 'admin' ? (d.owner_id === undefined ? me.id : d.owner_id) : me.id }; if (opts.allowDuplicate) d.allow_duplicate = true; return this.chk(await this.t('clients').insert(this.clean(d)).select().single()); },
     async updateClient(id, p) { p = { ...p }; ['id', 'created_by', 'created_at', 'last_follow_up', 'log_count', 'domain'].forEach(k => delete p[k]); return this.chk(await this.t('clients').update(this.clean(p)).eq('id', id).select().single()); },
+    async claimClient(id) { return this.chk(await this.init().rpc('claim_client', { p_client_id: id })); },
     async bulkUpdate(ids, patch) { this.chk(await this.t('clients').update(this.clean(patch)).in('id', ids)); return ids.length; },
     async deleteClient(id) { this.chk(await this.t('clients').delete().eq('id', id)); },
     async listLogs(cid) { return this.chk(await this.t('follow_ups').select('*, author:profiles(full_name)').eq('client_id', cid).order('entry_date', { ascending: false }).order('created_at', { ascending: false })).map(r => ({ ...r, author_name: r.author ? r.author.full_name : '' })); },

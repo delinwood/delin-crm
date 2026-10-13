@@ -89,17 +89,24 @@ python3 tools/prospect.py --country AU --product spc --provider overpass --n 30<
     $$('[data-c]').forEach(a => a.onclick = () => { P.country = a.dataset.c; save(); });
   }
 
-  // ---------------- POOL (admin) ----------------
+  // ---------------- POOL ----------------
   let PSEL = new Set();
   function pool() {
+    const admin = UI.ME.role === 'admin';
     const list = UI.CLIENTS.filter(c => !c.owner_id).sort((a, b) => ({ 'A+': 0, A: 1, B: 2, C: 3 }[a.priority] ?? 9) - ({ 'A+': 0, A: 1, B: 2, C: 3 }[b.priority] ?? 9));
     const sales = UI.USERS.filter(u => u.active && u.role === 'sales');
     UI.render(`<div class="pagehead"><h1>公海 / 线索池 <small>Lead pool — ${list.length} 家未分配</small></h1></div>
-      <section class="card pad bulkbar"><b id="pc">已选 ${PSEL.size}</b>
+      ${admin ? `<section class="card pad bulkbar"><b id="pc">已选 ${PSEL.size}</b>
         <select id="po">${opt('', '分配给… Assign to', '')}${UI.USERS.filter(u => u.active).map(u => opt(u.id, u.full_name, '')).join('')}</select><button class="primary sm" id="pa">分配所选</button>
-        <span class="sep"></span><button class="ghost sm" id="prr">⚖️ 平均分配所选给 ${sales.length} 位业务员（轮流）</button><button class="ghost sm" id="pall">全选</button></section>
-      <section class="card tbl"><table><thead><tr><th class="ck"></th><th>公司</th><th>国家/州</th><th>产品</th><th>优先级</th><th>来源</th></tr></thead><tbody>
-      ${list.map(c => `<tr><td class="ck"><input type="checkbox" data-p="${esc(c.id)}" ${PSEL.has(c.id) ? 'checked' : ''}></td><td><a class="cname" href="#/client/${esc(c.id)}">${esc(c.company_name)}</a><span class="sub">${esc(U.domain(c.website))}</span></td><td>${esc([c.state, c.country].filter(Boolean).join(', '))}</td><td><div class="chips">${UI.chips(c.products)}</div></td><td>${UI.prBadge(c.priority)}</td><td class="muted small">${esc((c.source_note || '').slice(0, 80))}</td></tr>`).join('') || '<tr><td colspan="6" class="empty">公海为空 Pool is empty</td></tr>'}</tbody></table></section>`, 'pool');
+        <span class="sep"></span><button class="ghost sm" id="prr">⚖️ 平均分配所选给 ${sales.length} 位业务员（轮流）</button><button class="ghost sm" id="pall">全选</button></section>` : '<p class="muted small">选择一条未分配客户并领取后，该客户将归你负责。领取成功后其他员工将无法再领取。</p>'}
+      <section class="card tbl"><table><thead><tr>${admin ? '<th class="ck"></th>' : ''}<th>公司</th><th>国家/州</th><th>产品</th><th>优先级</th><th>来源</th>${admin ? '' : '<th>操作</th>'}</tr></thead><tbody>
+      ${list.map(c => `<tr>${admin ? `<td class="ck"><input type="checkbox" data-p="${esc(c.id)}" ${PSEL.has(c.id) ? 'checked' : ''}></td>` : ''}<td><a class="cname" href="#/client/${esc(c.id)}">${esc(c.company_name)}</a><span class="sub">${esc(U.domain(c.website))}</span></td><td>${esc([c.state, c.country].filter(Boolean).join(', '))}</td><td><div class="chips">${UI.chips(c.products)}</div></td><td>${UI.prBadge(c.priority)}</td><td class="muted small">${esc((c.source_note || '').slice(0, 80))}</td>${admin ? '' : `<td><button class="primary sm" data-claim="${esc(c.id)}">领取为我的</button></td>`}</tr>`).join('') || `<tr><td colspan="${admin ? 6 : 6}" class="empty">公海为空 Pool is empty</td></tr>`}</tbody></table></section>`, 'pool');
+    $$('[data-claim]').forEach(btn => btn.onclick = async () => {
+      btn.disabled = true;
+      try { await DB.claimClient(btn.dataset.claim); PSEL.clear(); await UI.refresh(); pool(); UI.toast('已领取，客户现归你负责'); }
+      catch (err) { UI.toast(err.message || '领取失败，请刷新后重试', 1); await UI.refresh(); pool(); }
+    });
+    if (!admin) return;
     $$('[data-p]').forEach(cb => cb.onchange = () => { cb.checked ? PSEL.add(cb.dataset.p) : PSEL.delete(cb.dataset.p); $('#pc').textContent = '已选 ' + PSEL.size; });
     $('#pall').onclick = () => { list.forEach(c => PSEL.add(c.id)); pool(); };
     $('#pa').onclick = async () => { const o = $('#po').value; if (!o || !PSEL.size) return UI.toast('请选择客户和业务员', 1); await DB.bulkUpdate([...PSEL], { owner_id: o }); UI.toast(`已分配 ${PSEL.size} 家`); PSEL.clear(); await UI.refresh(); pool(); };
@@ -110,5 +117,5 @@ python3 tools/prospect.py --country AU --product spc --provider overpass --n 30<
   }
   UI.views.prospect = { render: prospect };
   UI.views.markets = { render: markets };
-  UI.views.pool = { render: pool, admin: true };
+  UI.views.pool = { render: pool };
 })();
