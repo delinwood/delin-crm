@@ -55,7 +55,7 @@
         <select id="b_pri"><option value="">优先级…</option>${C.PRIORITIES.map(v => opt(v, v, '')).join('')}</select>` : ''}
         <select id="b_status"><option value="">状态…</option>${C.STATUSES.filter(s => admin || s[0] !== '无效').map(s => opt(s[0], s[0], '')).join('')}</select>
         <input id="b_tag" placeholder="+ 标签 tag" style="width:110px"><input id="b_next" type="date" title="下次跟进">
-        <button class="primary sm" id="b_apply">应用 Apply</button><button class="ghost sm" id="b_export">导出所选</button>${canDelete ? '<button class="ghost sm danger" id="b_delete">批量删除所选客户</button>' : ''}<button class="ghost sm" id="b_clear">取消选择</button></div>
+        <button class="primary sm" id="b_apply">应用 Apply</button><button class="primary sm" id="b_mail">批量发送邮件</button><button class="ghost sm" id="b_export">导出所选</button>${canDelete ? '<button class="ghost sm danger" id="b_delete">批量删除所选客户</button>' : ''}<button class="ghost sm" id="b_clear">取消选择</button></div>
       <section class="card tbl"><table><thead><tr><th class="ck"><input type="checkbox" id="selall"></th>${th('company_name', '公司 Company')}<th>类型</th>${th('country', '地区 Location')}<th>产品 Products</th><th>客户标记</th>${th('priority', '优先级')}${th('status', '状态')}${admin ? th('owner_id', '业务员') : ''}${th('next_follow_up', '下次跟进')}${th('last_follow_up', '最近跟进')}<th>当地时间</th></tr></thead><tbody id="rows"></tbody></table></section>
       <div class="pager" id="pager"></div>`, 'list');
     draw();
@@ -73,6 +73,7 @@
     if ($('#b_delete')) $('#b_delete').onclick = () => removeClients(UI.CLIENTS.filter(c => SEL.has(c.id)));
     $('#b_clear').onclick = () => { SEL.clear(); draw(); };
     $('#b_export').onclick = () => UI.exportRows(UI.CLIENTS.filter(c => SEL.has(c.id)), 'xlsx');
+    $('#b_mail').onclick = () => UI.mailCompose([...SEL]);
     $('#b_apply').onclick = async () => {
       const patch = {}, o = $('#b_owner'), p = $('#b_pri');
       if (o && o.value) patch.owner_id = o.value === '_none' ? null : o.value; if (p && p.value) patch.priority = p.value;
@@ -202,6 +203,11 @@
           <div class="tabp" data-p="audit" ${TAB !== 'audit' ? 'hidden' : ''}><ul class="audit">${audit.map(a => `<li><span class="muted">${esc(a.at.slice(0, 16).replace('T', ' '))}</span> <b>${esc(a.actor_name)}</b> ${UI.auditText(a)}</li>`).join('') || '<li class="muted">暂无</li>'}</ul></div>
         </section></div></div>`, 'list');
     UI.bindAttention();
+    const mailQuick = document.querySelector('.hero .quick');
+    if (mailQuick && c.company_email && (admin || c.owner_id === UI.ME.id) && !UI.isInvalid(c)) {
+      const send = document.createElement('button'); send.className = 'btn primary'; send.textContent = '📨 系统发送邮件';
+      send.onclick = () => UI.mailCompose([c.id]); mailQuick.prepend(send);
+    }
     $$('.tab').forEach(b => b.onclick = () => { TAB = b.dataset.tab; $$('.tab').forEach(x => x.classList.toggle('on', x === b)); $$('.tabp').forEach(p => p.hidden = p.dataset.p !== TAB); });
     $$('[data-nx]').forEach(b => b.onclick = () => { $('#logf').nx.value = b.dataset.nx ? UI.today(+b.dataset.nx) : ''; });
     $('#logf').onsubmit = async e => { e.preventDefault(); const f = e.target;
