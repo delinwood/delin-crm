@@ -157,6 +157,7 @@ table.mini td:first-child{white-space:nowrap}
 @media (max-width:760px){.ftoggle{display:inline-flex;justify-content:center;order:2}.filters.open .ftoggle{order:0;grid-column:1/-1}.filters:has(#ftog):not(.open)>:not(#fq):not(.ftoggle){display:none}.filters:has(#ftog){grid-template-columns:1fr auto}.filters.open:has(#ftog){grid-template-columns:1fr 1fr}.filters #fq{grid-column:auto}.filters.open #fq{grid-column:1/-1}}
 
 /* Customer classification and in-app reminder navigation. */
+.mail-preview{padding:12px 0;border-bottom:1px solid var(--line)}.mail-preview summary{cursor:pointer;font-weight:600}.mail-campaign{padding:10px 0;border-bottom:1px solid var(--line)}#mailDraft label{margin-bottom:12px}#mailPreview .tbody{white-space:pre-wrap;overflow-wrap:anywhere}
 .attention{display:inline-block;border-radius:6px;padding:2px 8px;font-size:12px;font-weight:600}
 .attention-0{background:#fde8e6;color:#b42318}.attention-1{background:#fff1e0;color:#9a4c00}
 .attention-2{background:#e7f0ff;color:#1e4fa3}.attention-3{background:#eef1f5;color:#556}
