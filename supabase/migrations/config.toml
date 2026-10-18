@@ -1,0 +1,3 @@
+[functions.crm-mail]
+# The callback and unsubscribe endpoint are public; authenticated actions verify JWT in code.
+verify_jwt = false
