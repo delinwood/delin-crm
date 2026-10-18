@@ -19,7 +19,7 @@
     const c = UI.CLIENTS.find(x => x.id === TS.client) || {};
     const list = all.filter(t => (!TS.channel || t.channel === TS.channel) && (!TS.stage || t.stage === TS.stage));
     const missing = [!me.name_en && '英文名', !me.work_email && '工作邮箱', !me.whatsapp && 'WhatsApp'].filter(Boolean);
-    const mine = UI.CLIENTS.filter(x => x.status !== '无效').sort((a, b) => a.company_name.localeCompare(b.company_name));
+    const mine = UI.CLIENTS.filter(x => !UI.isInvalid(x)).sort((a, b) => a.company_name.localeCompare(b.company_name));
     UI.render(`<div class="pagehead"><h1>开发信模板 <small>Outreach templates — 业务员自己发送</small></h1><div class="actions"><button class="primary" id="tnew">+ 新模板</button></div></div>
       ${missing.length ? `<div class="info">✍️ 你的签名信息缺少：${missing.join('、')}。<a href="#/me">去补充 ›</a></div>` : ''}
       <section class="card pad filters"><label>客户 Client<select id="tc">${opt('', '（不选：显示占位符）', TS.client)}${mine.map(x => opt(x.id, x.company_name + ' · ' + (x.country || ''), TS.client)).join('')}</select></label>

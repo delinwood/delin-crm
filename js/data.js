@@ -95,11 +95,17 @@
       if (!c || c.owner_id) throw new Error('该客户已被领取或不在公海');
       c.owner_id = me.id; c.updated_at = nowISO(); this.audit(id, 'claim', { owner_id: me.id }); this.save(); return { ...c };
     },
-    async deleteClient(id) {
-      if (!this.admin()) throw new Error('业务员无删除权限'); const db = this.load(), c = db.clients.find(x => x.id === id);
-      db.clients = db.clients.filter(x => x.id !== id); ['logs', 'quotes', 'samples'].forEach(k => db[k] = db[k].filter(l => l.client_id !== id));
-      this.audit(id, 'delete', { company_name: c && c.company_name }); this.save();
+    async canDeleteClients() { const me = this.me(); return !!(me && me.active && me.role === 'admin' && ['boss', 'admin'].includes(me.username)); },
+    async bulkDeleteClients(ids) {
+      if (!await this.canDeleteClients()) throw new Error('仅老板账号可以删除客户');
+      const selected = new Set(ids), db = this.load(), clients = db.clients.filter(c => selected.has(c.id));
+      if (clients.length !== selected.size) throw new Error('部分客户已变化，请刷新后重试');
+      clients.forEach(c => this.audit(c.id, 'delete', { company_name: c.company_name }));
+      db.clients = db.clients.filter(c => !selected.has(c.id));
+      ['logs', 'quotes', 'samples'].forEach(k => db[k] = db[k].filter(r => !selected.has(r.client_id)));
+      this.save(); return clients.map(c => c.id);
     },
+    async deleteClient(id) { return this.bulkDeleteClients([id]); },
     names() { const u = this.load().users; return id => (u.find(x => x.id === id) || {}).full_name || ''; },
     async listLogs(cid) { await this.getClient(cid); const nm = this.names(); return this.load().logs.filter(l => l.client_id === cid).map(l => ({ ...l, author_name: nm(l.author_id) })).sort((a, b) => (b.entry_date + b.created_at).localeCompare(a.entry_date + a.created_at)); },
     async addLog(cid, { entry_date, channel, content, next_follow_up, status }) {
@@ -174,7 +180,17 @@
     async updateClient(id, p) { p = { ...p }; ['id', 'created_by', 'created_at', 'last_follow_up', 'log_count', 'domain'].forEach(k => delete p[k]); return this.chk(await this.t('clients').update(this.clean(p)).eq('id', id).select().single()); },
     async claimClient(id) { return this.chk(await this.init().rpc('claim_client', { p_client_id: id })); },
     async bulkUpdate(ids, patch) { this.chk(await this.t('clients').update(this.clean(patch)).in('id', ids)); return ids.length; },
-    async deleteClient(id) { this.chk(await this.t('clients').delete().eq('id', id)); },
+    async canDeleteClients() {
+      if (!this.profile || !this.profile.active || this.profile.role !== 'admin') return false;
+      return this.chk(await this.init().rpc('can_delete_clients')) === true;
+    },
+    async bulkDeleteClients(ids) {
+      if (!await this.canDeleteClients()) throw new Error('仅老板账号可以删除客户');
+      const selected = [...new Set(ids)];
+      if (!selected.length) return [];
+      return this.chk(await this.init().rpc('delete_clients', { p_ids: selected }));
+    },
+    async deleteClient(id) { return this.bulkDeleteClients([id]); },
     async listLogs(cid) { return this.chk(await this.t('follow_ups').select('*, author:profiles(full_name)').eq('client_id', cid).order('entry_date', { ascending: false }).order('created_at', { ascending: false })).map(r => ({ ...r, author_name: r.author ? r.author.full_name : '' })); },
     async addLog(cid, l) { return this.chk(await this.init().rpc('add_follow_up', { p_client: cid, p_date: l.entry_date, p_channel: l.channel || 'email', p_content: l.content, p_next: l.next_follow_up || null, p_status: l.status || null })); },
     async listQuotes(cid) { let q = this.t('quotes').select('*, author:profiles(full_name)').order('quote_date', { ascending: false }); if (cid) q = q.eq('client_id', cid); return this.chk(await q).map(r => ({ ...r, author_name: r.author ? r.author.full_name : '' })); },

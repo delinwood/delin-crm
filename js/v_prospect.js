@@ -93,7 +93,7 @@ python3 tools/prospect.py --country AU --product spc --provider overpass --n 30<
   let PSEL = new Set();
   function pool() {
     const admin = UI.ME.role === 'admin';
-    const list = UI.CLIENTS.filter(c => !c.owner_id).sort((a, b) => ({ 'A+': 0, A: 1, B: 2, C: 3 }[a.priority] ?? 9) - ({ 'A+': 0, A: 1, B: 2, C: 3 }[b.priority] ?? 9));
+    const list = UI.CLIENTS.filter(c => !c.owner_id && !UI.isInvalid(c)).sort((a, b) => ({ 'A+': 0, A: 1, B: 2, C: 3 }[a.priority] ?? 9) - ({ 'A+': 0, A: 1, B: 2, C: 3 }[b.priority] ?? 9));
     const sales = UI.USERS.filter(u => u.active && u.role === 'sales');
     UI.render(`<div class="pagehead"><h1>公海 / 线索池 <small>Lead pool — ${list.length} 家未分配</small></h1></div>
       ${admin ? `<section class="card pad bulkbar"><b id="pc">已选 ${PSEL.size}</b>
