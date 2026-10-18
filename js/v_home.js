@@ -1,12 +1,14 @@
 (function () {
   const { esc, opt, $, $$ } = UI;
-  const row = c => `<li><a href="#/client/${esc(c.id)}"><b>${esc(c.company_name)}</b></a> ${UI.prBadge(c.priority)} ${UI.stBadge(c.status)}
+  const row = c => `<li><a href="#/client/${esc(c.id)}"><b>${esc(c.company_name)}</b></a> ${UI.attentionBadge(c)} ${UI.prBadge(c.priority)} ${UI.stBadge(c.status)}
     <div class="muted small">${esc([c.state, c.country].filter(Boolean).join(', '))} · ${UI.dueBadge(c.next_follow_up) || '未设跟进'} ${UI.ltBadge(c)} ${UI.ME.role === 'admin' ? '· ' + esc(UI.userName(c.owner_id)) : ''}</div>
     <div class="qa">${c.company_phone ? UI.link(UI.tel(c.company_phone, c), '📞', 'btn ghost sm') : ''}${c.company_email ? UI.link('mailto:' + c.company_email, '✉️', 'btn ghost sm') : ''}${UI.wa(c.whatsapp || c.company_phone, c) ? UI.link(UI.wa(c.whatsapp || c.company_phone, c), '💬', 'btn ghost sm') : ''}<a class="btn ghost sm" href="#/templates/${esc(c.id)}">✍️</a><a class="btn ghost sm" href="#/client/${esc(c.id)}">记录 ›</a></div></li>`;
 
   async function home() {
     const me = UI.ME, admin = me.role === 'admin', t = UI.today();
-    const mine = UI.CLIENTS.filter(c => admin ? true : (c.owner_id === me.id || c.created_by === me.id)).filter(c => c.status !== '无效');
+    const mine = UI.CLIENTS.filter(c => admin ? true : (c.owner_id === me.id || c.created_by === me.id)).filter(c => !UI.isInvalid(c));
+    const emailDue = mine.filter(c => (admin || c.owner_id === me.id) && UI.emailDue(c))
+      .sort((a, b) => ['紧急','重要','普通'].indexOf(UI.attention(a)) - ['紧急','重要','普通'].indexOf(UI.attention(b)));
     const scope = admin ? mine : mine;
     const over = scope.filter(c => c.next_follow_up && c.next_follow_up < t && c.status !== '成交').sort((a, b) => a.next_follow_up.localeCompare(b.next_follow_up));
     const today = scope.filter(c => c.next_follow_up === t);
@@ -24,6 +26,9 @@
         <a class="kpi" href="#/list" data-due="week"><b>${week.length}</b><span>7天内 This week</span></a>
         <a class="kpi" href="#/list" data-st="未联系"><b>${scope.filter(c => c.status === '未联系').length}</b><span>未联系 New leads</span></a>
         <div class="kpi"><b>${logs.length}</b><span>本周跟进 Logged (7d)</span></div></section>
+      <section class="card pad"><div class="sec-h"><h2>✉️ 每3天邮件跟进 <small>${emailDue.length} 家已到期</small></h2><a href="#/email-reminders">查看全部提醒 ›</a></div>
+        <p class="muted small">领取或新建自己的客户后3天提醒；登记一条邮件跟进后重新计时。无效客户停止提醒。仅在系统内提醒。</p>
+        <ul class="todo">${emailDue.slice(0, 15).map(row).join('') || '<li class="muted">暂无到期邮件跟进任务</li>'}</ul></section>
       <div class="grid3">
         <section class="card pad"><h2>🔴 逾期 + 今日 <small>Overdue & today</small></h2><ul class="todo">${[...over, ...today].slice(0, 30).map(row).join('') || '<li class="muted">🎉 没有逾期或今日任务</li>'}</ul></section>
         <section class="card pad"><h2>📅 未来7天 <small>Upcoming</small></h2><ul class="todo">${week.slice(0, 20).map(row).join('') || '<li class="muted">无</li>'}</ul>
@@ -41,7 +46,7 @@
     const [logs, quotes, samples, audit] = await Promise.all([DB.listAllLogs(UI.today(-29)), DB.listQuotes(), DB.listSamples(), DB.listAudit({ limit: 25 })]);
     const wk = UI.today(-6), lastAct = {}; logs.forEach(l => { if (!lastAct[l.client_id] || l.entry_date > lastAct[l.client_id]) lastAct[l.client_id] = l.entry_date; });
     const lastTouch = c => c.last_follow_up || (c.updated_at || '').slice(0, 10) || (c.created_at || '').slice(0, 10);
-    const stale = all.filter(c => c.owner_id && !['无效', '成交'].includes(c.status) && UI.daysAgo(lastTouch(c)) >= STALE).sort((a, b) => lastTouch(a).localeCompare(lastTouch(b)));
+    const stale = all.filter(c => c.owner_id && !UI.isInvalid(c) && c.status !== '成交' && UI.daysAgo(lastTouch(c)) >= STALE).sort((a, b) => lastTouch(a).localeCompare(lastTouch(b)));
     const funnel = C.STATUSES.map(s => [s[0], s[1], all.filter(c => c.status === s[0]).length]), max = Math.max(1, ...funnel.map(f => f[2]));
     const days = [...Array(14)].map((_, i) => UI.today(i - 13)), perDay = days.map(d => logs.filter(l => l.entry_date === d).length), maxD = Math.max(1, ...perDay);
     const per = sales.map(u => { const cs = all.filter(c => c.owner_id === u.id);
@@ -56,6 +61,8 @@
         <div class="kpi warn"><b>${UI.overdue(all).length}</b><span>全队逾期 Overdue</span></div></section>
             <section class="card pad full"><h2>业务员表现 <small>Per salesperson</small></h2><div class="tblwrap"><table class="mini"><thead><tr><th>业务员</th><th>客户</th><th>未联系</th><th>已联系</th><th>已回复</th><th>已报价</th><th>成交</th><th>逾期</th><th>本周跟进</th><th>30天报价</th><th>30天样品</th><th>${STALE}天未动</th></tr></thead><tbody>
           ${per.map(p => `<tr><td><b>${esc(p.u.full_name)}</b></td><td>${p.n}</td>${['未联系', '已联系', '已回复', '已报价', '成交'].map(s => `<td>${p.st[s]}</td>`).join('')}<td class="${p.over ? 'red' : ''}">${p.over}</td><td>${p.wk}</td><td>${p.q}</td><td>${p.s}</td><td class="${p.stale ? 'red' : ''}">${p.stale}</td></tr>`).join('')}</tbody></table></div></section>
+      <section class="card pad"><div class="sec-h"><h2>客户标记审查</h2><a href="#/invalid">无效客户及原因 ›</a></div><div class="tblwrap"><table class="mini"><thead><tr><th>业务员</th><th>紧急</th><th>重要</th><th>普通</th><th>无效</th><th>邮件提醒已到期</th></tr></thead><tbody>
+      ${sales.map(u => { const cs = all.filter(c => c.owner_id === u.id); return `<tr><td>${esc(u.full_name)}</td>${['紧急','重要','普通'].map(l => `<td>${cs.filter(c => UI.attention(c) === l).length}</td>`).join('')}<td><a href="#/invalid/${esc(u.id)}">${cs.filter(UI.isInvalid).length}</a></td><td><a href="#/email-reminders/${esc(u.id)}">${cs.filter(UI.emailDue).length}</a></td></tr>`; }).join('')}</tbody></table></div></section>
       <div class="grid2">
         <section class="card pad"><h2>状态漏斗 <small>Pipeline funnel</small></h2>${funnel.map((f, i) => `<div class="fbar"><span>${esc(f[0])} <small>${esc(f[1])}</small></span><div><i class="st-${i}" style="width:${Math.max(2, f[2] / max * 100)}%"></i></div><b>${f[2]}</b></div>`).join('')}
           <h2 style="margin-top:20px">近14天跟进量 <small>Activity per day</small></h2><div class="spark">${days.map((d, i) => `<div title="${d}: ${perDay[i]}"><i style="height:${perDay[i] / maxD * 100}%"></i><small>${d.slice(8)}</small></div>`).join('')}</div></section>

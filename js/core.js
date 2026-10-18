@@ -33,13 +33,14 @@
   UI.loadXLSX = () => window.XLSX ? Promise.resolve() : new Promise((ok, no) => { const s = document.createElement('script'); s.src = 'https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js'; s.onload = ok; s.onerror = () => no(new Error('Excel 库加载失败（需联网），请用 CSV')); document.head.appendChild(s); });
   UI.modal = (html, onMount) => { const m = document.createElement('div'); m.className = 'modal'; m.innerHTML = `<div class="modal-box card">${html}<button class="ghost sm mclose" aria-label="close">✕</button></div>`;
     document.body.appendChild(m); const close = () => m.remove(); m.querySelector('.mclose').onclick = close; m.onclick = e => { if (e.target === m) close(); }; if (onMount) onMount(m, close); return close; };
-  UI.overdue = list => list.filter(c => c.next_follow_up && c.next_follow_up < UI.today() && c.status !== '无效' && c.status !== '成交');
+  UI.overdue = list => list.filter(c => c.next_follow_up && c.next_follow_up < UI.today() && !(UI.isInvalid ? UI.isInvalid(c) : c.status === '无效') && c.status !== '成交');
 
   // ---------- shell ----------
   const NAV = [
     ['home', '#/home', '🏠', '工作台', 'Today'], ['list', '#/list', '📇', '客户', 'Clients'], ['prospect', '#/prospect', '🔎', '找客户', 'Prospecting'],
     ['templates', '#/templates', '✉️', '话术模板', 'Templates'], ['markets', '#/markets', '🌍', '目标市场', 'Markets'],
-    ['pool', '#/pool', '🌊', '公海', 'Pool'], ['dash', '#/dashboard', '📊', '团队看板', 'Dashboard', 'admin'], ['admin', '#/admin', '⚙️', '管理', 'Admin', 'admin']
+    ['pool', '#/pool', '🌊', '公海', 'Pool'], ['dash', '#/dashboard', '📊', '团队看板', 'Dashboard', 'admin'], ['admin', '#/admin', '⚙️', '管理', 'Admin', 'admin'],
+    ['invalid', '#/invalid', '📁', '无效客户', 'Invalid'], ['email-reminders', '#/email-reminders', '✉️', '邮件提醒', 'Reminders']
   ];
   UI.shell = (inner, active) => {
     const admin = UI.ME.role === 'admin', nav = NAV.filter(n => !n[5] || admin), od = UI.overdue(UI.CLIENTS.filter(c => c.owner_id === UI.ME.id)).length;
