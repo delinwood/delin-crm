@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><meta name="referrer" content="no-referrer"><title>Unsubscribe — Delin Wood</title>
+<style>body{font:17px/1.6 system-ui,sans-serif;background:#f5f7fa;color:#14284b;margin:0;padding:40px 20px}main{max-width:580px;margin:8vh auto;background:#fff;padding:32px;border-radius:12px}button{padding:12px 20px;border:0;border-radius:6px;background:#14284b;color:white;font:inherit;cursor:pointer}button:disabled{opacity:.5}#result{white-space:pre-wrap}</style></head>
+<body><main><h1>Stop business enquiry emails</h1><p>Confirm below to stop future outreach emails from Delin Wood's customer system to this email address.</p><button id="confirm">Confirm unsubscribe</button><p id="result" role="status"></p></main>
+<script src="js/config.js"></script><script>
+  const token = new URLSearchParams(location.search).get('token') || '';
+  history.replaceState(null, '', location.pathname);
+  const button = document.getElementById('confirm'), result = document.getElementById('result');
+  if (!/^[A-Za-z0-9_-]{43}$/.test(token)) { button.disabled = true; result.textContent = 'This link is invalid. Please use the unsubscribe link in your email.'; }
+  button.onclick = async () => {
+    button.disabled = true; result.textContent = 'Processing…';
+    try {
+      const response = await fetch(CRM_CONFIG.SUPABASE_URL + '/functions/v1/crm-mail?route=unsubscribe&token=' + encodeURIComponent(token), { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: 'List-Unsubscribe=One-Click' });
+      if (!response.ok) throw new Error('We could not process this request. Please retry or reply to the sender asking to stop emails.');
+      result.textContent = 'You have been unsubscribed. No further outreach emails will be sent to this email address from this system.';
+      button.textContent = 'Unsubscribed';
+    } catch (error) { result.textContent = error.message; button.disabled = false; }
+  };
+</script></body></html>
