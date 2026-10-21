@@ -1,0 +1,78 @@
+// Runs against local, in-memory PostgreSQL (PGlite); no Gmail or production writes.
+import { PGlite } from '../deploy/qa/node_modules/@electric-sql/pglite/dist/index.js';
+import fs from 'node:fs';
+import assert from 'node:assert/strict';
+const db=new PGlite();
+await db.exec(`create role anon; create role authenticated; create role service_role;
+create schema auth; create function auth.uid() returns uuid language sql stable as 'select nullif(current_setting(''app.uid'',true),'''')::uuid';
+create table public.profiles(id uuid primary key,role text,active boolean default true);
+create table public.clients(id uuid primary key,owner_id uuid,company_name text,contact_name text,country text,city text,customer_type text,products text[],company_email text,status text default '未联系');
+create table public.client_tracking(client_id uuid primary key,attention_level text,email_anchor_at timestamptz,reminder_owner_id uuid);
+create function public.is_active_user() returns boolean language sql security definer as 'select exists(select 1 from profiles where id=auth.uid() and active)';
+create function public.is_admin() returns boolean language sql security definer as 'select exists(select 1 from profiles where id=auth.uid() and active and role=''admin'')';`);
+const root=new URL('../',import.meta.url);
+for(const file of ['20261018020000_mail_campaigns.sql','20261018030000_mail_queue_fairness.sql','20261021010000_mail_limits_and_plans.sql']) await db.exec(fs.readFileSync(new URL('supabase/migrations/'+file,root),'utf8'));
+const boss='10000000-0000-4000-8000-000000000001',sales='10000000-0000-4000-8000-000000000002',client='20000000-0000-4000-8000-000000000001';
+await db.query(`insert into profiles(id,role) values($1,'admin'),($2,'sales');`,[boss,sales]);
+await db.query(`insert into clients(id,owner_id,company_name,contact_name,country,city,customer_type,products,company_email) values($1,$2,'Buyer Ltd','Ali','Saudi Arabia','Riyadh','importer',array['spc'],'buyer@example.test')`,[client,sales]);
+await db.query(`insert into mail_accounts(user_id,email,refresh_cipher) values($1,'sales@gmail.test','encrypted')`,[sales]);
+const scalar=async(sql,args=[]) => Object.values((await db.query(sql,args)).rows[0])[0];
+await assert.rejects(()=>db.query('select mail_set_limit($1,$1,400)',[sales]),/仅老板/);
+assert.equal(await scalar('select mail_set_limit($1,$2,400)',[boss,sales]),400);
+assert.equal(await scalar('select daily_limit from mail_sender_settings where user_id=$1',[sales]),400);
+assert.equal(await scalar('select daily_limit from mail_accounts where user_id=$1',[sales]),400);
+assert.equal(await scalar('select mail_set_limit($1,$2,0)',[boss,sales]),0);
+assert.equal(await scalar('select mail_set_limit($1,$1,900)',[boss]),900,'pre-connect settings persist');
+const snapshot=await scalar('select mail_client_snapshot(c) from clients c where id=$1',[client]);
+const drafts=[{subject:'Buyer Ltd first',body:'Hi Ali, first message'},{subject:'Buyer Ltd follow-up',body:'Hi Ali, following up'},{subject:'Buyer Ltd timing',body:'Hi Ali, procurement timing'}];
+const target={client_id:client,recipient:'buyer@example.test',snapshot,drafts};
+let batchNo=0;
+async function create(interval=3,max=3,start=new Date(Date.now()+86400000).toISOString()) {
+  const batch='30000000-0000-4000-8000-'+String(++batchNo).padStart(12,'0');
+  const args=[sales,batch,'Local test',start,interval,max,JSON.stringify([target])];
+  assert.equal(await scalar('select mail_plans_create($1,$2,$3,$4,$5,$6,$7)',args),1);
+  assert.equal(await scalar('select mail_plans_create($1,$2,$3,$4,$5,$6,$7)',args),1,'idempotent retry');
+  return await scalar('select id from mail_plans where batch_id=$1',[batch]);
+}
+let plan=await create();
+assert.equal((await db.query('select * from mail_plans_claim()')).rows.length,0,'future plan is not due');
+await db.query('update mail_plans set next_run_at=now()-interval \'1 minute\' where id=$1',[plan]);
+assert.equal((await db.query('select * from mail_plans_claim()')).rows.length,1);
+assert.equal((await db.query('select * from mail_plans_claim()')).rows.length,0,'lease prevents duplicate workers');
+let midNo=0;
+async function enqueue(p=plan) {const id='40000000-0000-4000-8000-'+String(++midNo).padStart(12,'0'); return {id,ok:await scalar('select mail_plan_enqueue($1,$2)',[p,JSON.stringify({id,unsubscribe_hash:'token-'+id})])};}
+let message=await enqueue(); assert.equal(message.ok,true);
+assert.equal((await enqueue()).ok,false,'one pending round per customer');
+let claimed=(await db.query('select * from mail_claim()')).rows;
+assert.equal(claimed.length,1,'unlimited setting still dispatches with pacing');
+assert.match(claimed[0].subject,/first/);
+await db.query('select mail_finish($1,$2)',[message.id,'local-provider']);
+await db.query('select mail_finish($1,$2)',[message.id,'local-provider']);
+assert.equal(await scalar('select sent_count from mail_plans where id=$1',[plan]),1,'finish is idempotent');
+assert.ok(await scalar('select next_run_at>now()+interval \'2 days 23 hours\' from mail_plans where id=$1',[plan]));
+await db.query('update mail_plans set next_run_at=now()-interval \'1 minute\',lease_until=now() where id=$1',[plan]);
+assert.equal((await enqueue()).ok,false,'24-hour duplicate guard defers early recurrence');
+await db.exec("update mail_messages set attempted_at=now()-interval '4 days',sent_at=now()-interval '4 days'; update mail_accounts set next_send_at=now(); update mail_plans set next_run_at=now()-interval '1 minute';");
+message=await enqueue(); assert.equal(message.ok,true);
+claimed=(await db.query('select * from mail_claim()')).rows; assert.match(claimed[0].subject,/follow-up/);
+await db.query('select mail_plan_state($1,$2,$3)',[sales,plan,'paused']);
+await db.query('select mail_plan_state($1,$2,$3)',[sales,plan,'stopped']);
+assert.equal(await scalar('select status from mail_messages where id=$1',[message.id]),'sending','already claimed messages cannot be recalled; worker rechecks plan');
+assert.equal(await scalar('select status from mail_plans where id=$1',[plan]),'stopped');
+// A new finite one-shot completes after acceptance.
+await db.exec("update mail_messages set status='cancelled'; update mail_accounts set next_send_at=now();");
+plan=await create(null,1,new Date(Date.now()+60000).toISOString());
+await db.query('update mail_plans set next_run_at=now()-interval \'1 minute\' where id=$1',[plan]);
+message=await enqueue(); assert.equal(message.ok,true); await db.query('select * from mail_claim()'); await db.query('select mail_finish($1,$2)',[message.id,'one-shot']);
+assert.equal(await scalar('select status from mail_plans where id=$1',[plan]),'completed');
+// Changed facts require a new preview, and replies stop automation.
+plan=await create(); await db.exec("update clients set contact_name='Changed'; update mail_plans set next_run_at=now()-interval '1 minute';");
+assert.equal((await enqueue()).ok,false); assert.equal(await scalar('select status from mail_plans where id=$1',[plan]),'paused');
+await db.query('select mail_plan_state($1,$2,$3)',[sales,plan,'stopped']);
+await db.exec("update clients set contact_name='Ali';"); plan=await create();
+await db.exec("update clients set status='已回复'; update mail_plans set next_run_at=now()-interval '1 minute';");
+assert.equal((await enqueue()).ok,false); assert.equal(await scalar('select status from mail_plans where id=$1',[plan]),'stopped');
+assert.equal(await scalar("select has_function_privilege('authenticated','public.mail_plans_claim()','execute')"),false);
+assert.equal(await scalar("select has_table_privilege('authenticated','public.mail_sender_settings','select')"),false);
+console.log('PASS: migrations; saved and unlimited limits; pre-connect preferences; schedule idempotency; future gating; lease; single pending round; follow-up copy; 24h duplicate guard; finish/count/interval; stop; single-shot completion; changed facts; replied customers; privilege isolation. No external emails.');
+await db.close();

@@ -70,7 +70,19 @@ async function ownCampaign(id: string, me: any) {
   if (c.sender_id !== me.id && me.role !== 'admin') throw new Error('无权操作');
   return c;
 }
+const customerSnapshot = (c: any) => Object.fromEntries(['company_name','contact_name','country','city','customer_type','products','company_email'].map(k => [k, c[k] ?? (k === 'products' ? [] : '')]));
+const sameSnapshot = (c: any, snapshot: any) => Object.entries(customerSnapshot(c)).every(([key,value]) => JSON.stringify(value) === JSON.stringify(snapshot?.[key]));
+function scheduleInput(input: any) {
+  if (!input.schedule) return null;
+  const start = Date.parse(input.schedule.start_at);
+  const interval = input.schedule.interval_days == null ? null : input.schedule.interval_days;
+  const max = interval == null ? 1 : input.schedule.max_sends;
+  if (!Number.isFinite(start) || start < Date.now() - 60000 || start > Date.now() + 366 * 86400000 ||
+      (interval != null && ![3,7].includes(interval)) || !Number.isInteger(max) || max < 0 || max > 100) throw new Error('请设置有效的首次时间、3/7天间隔及发送轮数');
+  return { start_at: new Date(start).toISOString(), interval_days: interval, max_sends: max };
+}
 async function preview(input: any, me: any) {
+  const schedule = scheduleInput(input);
   if (!Array.isArray(input.ids) || input.ids.length < 1 || input.ids.length > 400 || input.ids.some((id: string) => !uuid.test(id))) throw new Error('每次请选择1至400家客户');
   const ids = [...new Set(input.ids)];
   const account = check(await db.from('mail_accounts').select('email,connected').eq('user_id', me.id).maybeSingle());
@@ -84,6 +96,7 @@ async function preview(input: any, me: any) {
   const flags = check(await db.from('client_tracking').select('client_id,attention_level').in('client_id', ids));
   const suppressed = check(await db.from('mail_suppressions').select('email').in('email', clients.map((c: any) => cleanEmail(c.company_email))));
   const recent = check(await db.from('mail_messages').select('recipient,status,attempted_at,created_at').in('recipient', clients.map((c: any) => cleanEmail(c.company_email))).or(`status.in.(queued,sending),attempted_at.gte.${new Date(Date.now() - 86400000).toISOString()}`));
+  const plans = schedule ? check(await db.from('mail_plans').select('recipient').in('recipient', clients.map((c: any) => cleanEmail(c.company_email))).in('status', ['running','paused'])) : [];
   const ready: any[] = [], skipped: any[] = [], seen = new Set();
   for (const id of ids) {
     const c = clients.find((c: any) => c.id === id);
@@ -95,18 +108,36 @@ async function preview(input: any, me: any) {
     else if (!emailRE.test(recipient)) reason = '邮箱为空或格式不正确';
     else if (suppressed.some((s: any) => s.email === recipient)) reason = '已退订或退信';
     else if (seen.has(recipient)) reason = '本批次邮箱重复';
-    else if (recent.some((s: any) => s.recipient === recipient && (['queued', 'sending'].includes(s.status) || ['sent', 'unknown', 'bounced'].includes(s.status)))) reason = '已在队列或24小时内已发送';
+    else if (plans.some((p: any) => p.recipient === recipient)) reason = '已有定时/循环计划，请先停止原计划';
+    else if (schedule && ['已回复','成交'].includes(c.status)) reason = '客户已回复或成交，不能自动循环联系';
+    else if (!schedule && recent.some((s: any) => s.recipient === recipient && (['queued', 'sending'].includes(s.status) || ['sent', 'unknown', 'bounced'].includes(s.status)))) reason = '已在队列或24小时内已发送';
     if (reason) { skipped.push({ id, company_name: c.company_name, reason }); continue; }
     seen.add(recipient);
     const custom = input.custom && typeof input.custom.subject === 'string' && typeof input.custom.body === 'string' ? input.custom : template;
     const draft = (globalThis as any).CRM_MAIL.draft(c, { ...me, sender_email: account.email }, cfg, custom);
     if (/[\r\n]/.test(draft.subject) || /\{\{\w+\}\}/.test(draft.subject + draft.body) || draft.subject.length > 250 || draft.body.length > 30000 || !draft.subject.trim() || !draft.body.trim()) throw new Error('标题/正文过长、为空或包含未替换字段');
-    ready.push({ client_id: id, company_name: c.company_name, recipient, ...draft });
+    if (schedule) {
+      const drafts = [draft];
+      if (schedule.interval_days && schedule.max_sends !== 1) {
+        drafts.push((globalThis as any).CRM_MAIL.followup(c, { ...me, sender_email: account.email }, cfg, 1));
+        if (schedule.max_sends !== 2) drafts.push((globalThis as any).CRM_MAIL.followup(c, { ...me, sender_email: account.email }, cfg, 2));
+      }
+      ready.push({ client_id: id, company_name: c.company_name, recipient, snapshot: customerSnapshot(c), drafts });
+    } else ready.push({ client_id: id, company_name: c.company_name, recipient, ...draft });
   }
-  return { ready, skipped, sender: account.email };
+  return { ready, skipped, sender: account.email, ...(schedule ? { schedule } : {}) };
 }
 
 async function worker() {
+  const plans = check(await db.rpc('mail_plans_claim')) || [];
+  for (const p of plans) {
+    const id = crypto.randomUUID();
+    try {
+      check(await db.rpc('mail_plan_enqueue', { p_plan: p.id, p_message: { id, unsubscribe_hash: await hash(await unsubscribeToken(id)) } }));
+    } catch {
+      check(await db.from('mail_plans').update({ status: 'paused', last_error: '计划入队失败，已暂停；请检查客户信息和邮箱后重新创建' }).eq('id', p.id));
+    }
+  }
   const messages = check(await db.rpc('mail_claim')) || [];
   for (const m of messages) {
     let requested = false;
@@ -117,12 +148,14 @@ async function worker() {
       const active = check(await db.from('profiles').select('active').eq('id', m.sender_id).single());
       const suppression = check(await db.from('mail_suppressions').select('email').eq('email', m.recipient).maybeSingle());
       const currentAccount = check(await db.from('mail_accounts').select('connected,email').eq('user_id', m.sender_id).single());
-      const customer = check(await db.from('clients').select('owner_id,status,company_email').eq('id', m.client_id).maybeSingle());
+      const customer = check(await db.from('clients').select('*').eq('id', m.client_id).maybeSingle());
+      const plan = check(await db.from('mail_plans').select('status,snapshot').eq('last_message_id', m.id).maybeSingle());
       const flag = check(await db.from('client_tracking').select('attention_level').eq('client_id', m.client_id).maybeSingle());
       const sender = check(await db.from('profiles').select('role').eq('id', m.sender_id).single());
       const eligible = customer && customer.status !== '无效' && flag?.attention_level !== '无效' && cleanEmail(customer.company_email) === m.recipient && (sender.role === 'admin' || customer.owner_id === m.sender_id);
-      if (!active.active || !currentAccount.connected || currentAccount.email !== a.email || !eligible || campaign.status !== 'running' || suppression) {
-        check(await db.from('mail_messages').update({ status: campaign.status === 'paused' ? 'queued' : 'skipped', error: '发送前任务/账号状态已变化' }).eq('id', m.id)); continue;
+      const planChanged = plan && (plan.status !== 'running' || ['已回复','成交'].includes(customer?.status) || !sameSnapshot(customer || {}, plan.snapshot));
+      if (!active.active || !currentAccount.connected || currentAccount.email !== a.email || !eligible || campaign.status !== 'running' || suppression || planChanged) {
+        check(await db.from('mail_messages').update({ status: campaign.status === 'paused' || plan?.status === 'paused' ? 'queued' : 'skipped', error: '发送前任务/账号/客户资料状态已变化' }).eq('id', m.id)); continue;
       }
       const unsub = `${endpoint()}?route=unsubscribe&token=${await unsubscribeToken(m.id)}`;
       const body = `${m.body}\n\nIf you prefer not to receive further business enquiries from us, unsubscribe: ${unsub}`;
@@ -142,12 +175,16 @@ async function worker() {
         check(await db.from('mail_messages').update({ status: unknown ? 'unknown' : 'failed', error: `Gmail拒绝或异常（${r.status}），请检查邮箱后处理` }).eq('id', m.id));
         if (rate) {
           check(await db.from('mail_campaigns').update({ status: 'paused' }).eq('sender_id', m.sender_id).eq('status', 'running'));
-          check(await db.from('mail_accounts').update({ next_send_at: new Date(Date.now() + 86400000).toISOString() }).eq('user_id', m.sender_id));
+          check(await db.from('mail_plans').update({ status: 'paused', last_error: 'Gmail限发，计划已暂停' }).eq('sender_id', m.sender_id).eq('status', 'running'));
+          check(await db.from('mail_accounts').update({ quota_wait: false, next_send_at: new Date(Date.now() + 86400000).toISOString() }).eq('user_id', m.sender_id));
         }
       }
     } catch (e) {
       check(await db.from('mail_messages').update({ status: requested ? 'unknown' : 'failed', error: requested ? '发送状态待核实，请检查Gmail发件箱；不自动重试' : String((e as Error).message).slice(0, 200) }).eq('id', m.id));
-      if (!requested) check(await db.from('mail_campaigns').update({ status: 'paused' }).eq('sender_id', m.sender_id).eq('status', 'running'));
+      if (!requested) {
+        check(await db.from('mail_campaigns').update({ status: 'paused' }).eq('sender_id', m.sender_id).eq('status', 'running'));
+        check(await db.from('mail_plans').update({ status: 'paused', last_error: '邮箱授权或准备发送失败，计划已暂停' }).eq('sender_id', m.sender_id).eq('status', 'running'));
+      }
     }
   }
   return { processed: messages.length };
@@ -171,12 +208,13 @@ Deno.serve(async req => {
       const me = check(await db.from('profiles').select('active,work_email').eq('id', row.user_id).single());
       if (!me.active || cleanEmail(me.work_email) !== cleanEmail(identity.email)) throw new Error('授权邮箱与CRM个人资料中的工作邮箱不一致，请修改资料后重新连接');
       // Reconnection preserves the owner's configured quota and pacing.
-      const previous = check(await db.from('mail_accounts').select('email').eq('user_id', row.user_id).maybeSingle());
+      const previous = check(await db.from('mail_accounts').select('email,daily_limit').eq('user_id', row.user_id).maybeSingle());
+      const saved = check(await db.from('mail_sender_settings').select('daily_limit').eq('user_id', row.user_id).maybeSingle());
       if (previous && previous.email !== cleanEmail(identity.email)) {
         const pending = check(await db.from('mail_messages').select('id').eq('sender_id', row.user_id).in('status', ['queued','sending']).limit(1));
         if (pending.length) throw new Error('请先取消原邮箱的待发送任务，再切换发件邮箱');
       }
-      const patch = { email: cleanEmail(identity.email), refresh_cipher: await seal(token.refresh_token, row.user_id), connected: true, updated_at: new Date().toISOString() };
+      const patch = { email: cleanEmail(identity.email), refresh_cipher: await seal(token.refresh_token, row.user_id), connected: true, daily_limit: saved?.daily_limit ?? previous?.daily_limit ?? 50, updated_at: new Date().toISOString() };
       if (previous) check(await db.from('mail_accounts').update(patch).eq('user_id', row.user_id));
       else check(await db.from('mail_accounts').insert({ user_id: row.user_id, ...patch }));
       return new Response(null, { status: 303, headers: { Location: `${env('CRM_SITE_URL').replace(/\/$/, '')}/#/mail`, 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer' } });
@@ -188,6 +226,7 @@ Deno.serve(async req => {
       if (req.method === 'POST') {
         check(await db.from('mail_suppressions').upsert({ email: m.recipient, reason: '收件人退订' }));
         check(await db.from('mail_messages').update({ status: 'skipped', error: '收件人已退订' }).eq('recipient', m.recipient).eq('status', 'queued'));
+        check(await db.from('mail_plans').update({ status: 'stopped', last_error: '收件人已退订' }).eq('recipient', m.recipient).in('status', ['running','paused']));
         return new Response('Unsubscribed. You will receive no further outreach emails from this CRM.', { headers: { 'Content-Type': 'text/plain; charset=UTF-8', 'Cache-Control': 'no-store' } });
       }
       // Supabase's shared domain rewrites HTML to text/plain. Serve confirmation on Pages.
@@ -210,13 +249,21 @@ Deno.serve(async req => {
     }
     if (input.action === 'status') {
       const a = check(await db.from('mail_accounts').select('email,connected,daily_limit,next_send_at').eq('user_id', me.id).maybeSingle());
-      return json({ account: a, configured: true });
+      const saved = check(await db.from('mail_sender_settings').select('user_id,daily_limit').eq('user_id', me.id).maybeSingle());
+      let limits: any[] = [];
+      if (me.role === 'admin') {
+        const preferences = check(await db.from('mail_sender_settings').select('user_id,daily_limit'));
+        const accounts = check(await db.from('mail_accounts').select('user_id,daily_limit'));
+        limits = [...accounts.filter((x: any) => !preferences.some((p: any) => p.user_id === x.user_id)), ...preferences];
+      }
+      return json({ account: a, daily_limit: saved?.daily_limit ?? a?.daily_limit ?? 50, limits, configured: true });
     }
     if (input.action === 'disconnect') {
       const a = check(await db.from('mail_accounts').select('*').eq('user_id', me.id).maybeSingle());
       if (a) {
         check(await db.from('mail_accounts').update({ connected: false }).eq('user_id', me.id));
         check(await db.from('mail_campaigns').update({ status: 'paused' }).eq('sender_id', me.id).eq('status', 'running'));
+        check(await db.from('mail_plans').update({ status: 'paused', last_error: '邮箱已断开，请连接后手动继续' }).eq('sender_id', me.id).eq('status', 'running'));
         // Revoke with Google after disabling local sends. No token in URL or logs.
         try { await fetch('https://oauth2.googleapis.com/revoke', { method: 'POST', body: new URLSearchParams({ token: await unseal(a.refresh_cipher, me.id) }), signal: AbortSignal.timeout(10000) }); } catch { /* Disabled locally; Google account can revoke too. */ }
         check(await db.from('mail_accounts').update({ refresh_cipher: '' }).eq('user_id', me.id));
@@ -226,6 +273,15 @@ Deno.serve(async req => {
     if (input.action === 'preview') return json(await preview(input, me));
     if (input.action === 'enqueue') {
       if (!uuid.test(input.id || '') || input.confirmed !== true) throw new Error('请先预览并确认发送');
+      if (input.schedule) {
+        const existingPlan = check(await db.from('mail_plans').select('id').eq('batch_id', input.id).eq('sender_id', me.id).limit(1));
+        if (existingPlan.length) return json({ id: input.id, scheduled: true });
+        const p = await preview(input, me);
+        if (await hash(JSON.stringify({ ready: p.ready, schedule: p.schedule })) !== input.digest) throw new Error('客户或计划信息已变化，请重新预览');
+        if (!p.ready.length) throw new Error('没有可创建计划的客户');
+        const count = check(await db.rpc('mail_plans_create', { p_sender: me.id, p_batch: input.id, p_name: String(input.name || '自动客户邮件'), p_start: p.schedule!.start_at, p_interval: p.schedule!.interval_days, p_max: p.schedule!.max_sends, p_targets: p.ready }));
+        return json({ id: input.id, scheduled: true, count });
+      }
       const existing = check(await db.from('mail_campaigns').select('id').eq('id', input.id).eq('sender_id', me.id).maybeSingle());
       if (existing) return json({ id: existing.id });
       const p = await preview(input, me);
@@ -246,8 +302,13 @@ Deno.serve(async req => {
       return json({ ok: true });
     }
     if (input.action === 'limit') {
-      if (me.role !== 'admin' || !Number.isInteger(input.limit) || input.limit < 1 || input.limit > 400) throw new Error('仅老板可设置每日1至400封');
-      check(await db.from('mail_accounts').update({ daily_limit: input.limit }).eq('user_id', input.user_id));
+      if (me.role !== 'admin' || !uuid.test(input.user_id || '') || !Number.isInteger(input.limit) || input.limit < 0 || input.limit > 2147483647) throw new Error('仅老板可设置非负整数限额；0表示不设系统每日上限');
+      const value = check(await db.rpc('mail_set_limit', { p_actor: me.id, p_user: input.user_id, p_limit: input.limit }));
+      return json({ ok: true, daily_limit: value });
+    }
+    if (input.action === 'plan') {
+      if (!uuid.test(input.id || '') || !['running','paused','stopped'].includes(input.status)) throw new Error('无效计划操作');
+      check(await db.rpc('mail_plan_state', { p_actor: me.id, p_id: input.id, p_state: input.status }));
       return json({ ok: true });
     }
     if (input.action === 'suppress') {
@@ -257,6 +318,7 @@ Deno.serve(async req => {
       check(await db.from('mail_suppressions').upsert({ email: m.recipient, reason }));
       if (input.reason === 'bounced') check(await db.from('mail_messages').update({ status: 'bounced', error: reason }).eq('id', m.id));
       check(await db.from('mail_messages').update({ status: 'skipped', error: reason }).eq('recipient', m.recipient).eq('status', 'queued'));
+      check(await db.from('mail_plans').update({ status: 'stopped', last_error: reason }).eq('recipient', m.recipient).in('status', ['running','paused']));
       return json({ ok: true });
     }
     throw new Error('不支持的操作');
