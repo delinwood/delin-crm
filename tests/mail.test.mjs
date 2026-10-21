@@ -24,7 +24,7 @@ assert.doesNotMatch(usa.body + usa.subject, /laminate|engineered/i);
 let tables, claimed = [], finished = [], gmailCalls = [], handler;
 function reset() {
   tables = { profiles: [{ ...me }], mail_accounts: [{ user_id: me.id, email: me.work_email, connected: true, daily_limit: 50 }],
-    clients: [{ ...c }], client_tracking: [], mail_suppressions: [], mail_messages: [], templates: [], mail_campaigns: [] };
+    clients: [{ ...c }], client_tracking: [], mail_suppressions: [], mail_messages: [], templates: [], mail_campaigns: [], mail_plans: [], mail_sender_settings: [] };
   claimed = []; finished = []; gmailCalls = [];
 }
 reset();
@@ -52,6 +52,9 @@ function query(table) {
 }
 const db = { from: query, auth: { getUser: async token => token === 'valid' ? { data: { user: { id: me.id } } } : { error: 'invalid', data: {} } }, rpc: async (name, args) => {
   if (name === 'mail_claim') return { data: claimed, error: null };
+  if (name === 'mail_plans_claim') return { data: [], error: null };
+  if (name === 'mail_plans_create') return { data: args.p_targets.length, error: null };
+  if (name === 'mail_set_limit') { tables.mail_sender_settings = [{user_id:args.p_user,daily_limit:args.p_limit}]; return { data: args.p_limit, error: null }; }
   if (name === 'mail_finish') { finished.push(args); return { data: null, error: null }; }
   if (name === 'mail_enqueue') return { data: args.p_id, error: null };
   throw new Error('Unexpected RPC ' + name);
@@ -123,4 +126,20 @@ assert.equal(tables.mail_suppressions.length, 0, 'Link scanners must not unsubsc
 assert.equal((await handler(new Request(unsubURL, { method: 'POST' }))).status, 200);
 assert.equal(tables.mail_suppressions[0].email, c.company_email);
 assert.equal(tables.mail_messages[0].status, 'skipped');
+reset();
+const planInput = { ids:[c.id], schedule:{start_at:new Date(Date.now()+86400000).toISOString(),interval_days:3,max_sends:3} };
+const planned = await context.testMail.preview(planInput,me);
+assert.equal(planned.ready[0].drafts.length,3);
+assert.match(planned.ready[0].drafts[1].body,/Ali/);
+assert.match(planned.ready[0].drafts[2].body,/Verified Ltd/);
+assert.notEqual(planned.ready[0].drafts[1].body,planned.ready[0].drafts[2].body);
+const planDigest=await context.testMail.hash(JSON.stringify({ready:planned.ready,schedule:planned.schedule}));
+assert.equal((await api({...planInput,action:'enqueue',id:'20000000-0000-4000-8000-000000000002',confirmed:true,digest:planDigest})).status,200);
+assert.equal((await api({...planInput,action:'enqueue',id:'20000000-0000-4000-8000-000000000003',confirmed:true,digest:'changed'})).status,400);
+const originalID=me.id; me.id='10000000-0000-4000-8000-000000000099'; reset(); tables.profiles[0].role='admin';
+assert.equal((await api({action:'limit',user_id:me.id,limit:0})).status,200);
+const status=await(await api({action:'status'})).json(); assert.equal(status.daily_limit,0); assert.equal(status.limits[0].daily_limit,0);
+assert.equal((await api({action:'limit',user_id:me.id,limit:1200})).status,200);
+assert.equal((await api({action:'limit',user_id:me.id,limit:-1})).status,400);
+me.id=originalID;
 console.log('PASS: frontend syntax; fact-based personalization; USA product rules; 400 limit; JWT; owner isolation; invalid/suppressed/duplicate exclusion; preview integrity; admin quota; worker auth; MIME; provider success/timeout/limit handling; campaign isolation. No external emails sent.');
