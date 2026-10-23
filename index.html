@@ -20,7 +20,7 @@
     var s = [];
     if (CRM_CONFIG.MODE === 'supabase') s.push('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js');
     else s.push('js/seed.js');
-    s.push('js/markets.js', 'js/templates.js', 'js/data.js', 'js/core.js', 'js/followup.js', 'js/mail-merge.js', 'js/v_clients.js', 'js/v_home.js', 'js/v_prospect.js', 'js/v_tools.js', 'js/v_mail.js', 'js/v_pool.js');
+    s.push('js/markets.js', 'js/templates.js', 'js/data.js', 'js/core.js', 'js/followup.js', 'js/mail-merge.js', 'js/v_clients.js', 'js/v_home.js', 'js/v_prospect.js', 'js/v_tools.js', 'js/v_mail.js', 'js/v_pool.js', 'js/v_business.js', 'js/v_recovery.js', 'js/v_research.js', 'js/v_inbound.js');
     (function next() { if (!s.length) return UI.route(); var el = document.createElement('script'); el.src = s.shift(); el.onload = next; document.body.appendChild(el); })();
   })();
 </script>

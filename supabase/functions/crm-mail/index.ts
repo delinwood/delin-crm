@@ -1,5 +1,7 @@
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import '../../../js/mail-merge.js';
+import { inboundWorker } from './inbound.ts';
+import { researchWorker, researchCapabilities } from './research.ts';
 
 const env = (key: string) => Deno.env.get(key) || '';
 const origin = () => new URL(env('CRM_SITE_URL') || 'https://delinwood.github.io/delin-crm').origin;
@@ -14,6 +16,13 @@ const hash = async (s: string) => url64(new Uint8Array(await crypto.subtle.diges
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const emailRE = /^[A-Z0-9.!#$%&'*+\/=?^_`{|}~-]+@[A-Z0-9](?:[A-Z0-9-]*[A-Z0-9])?(?:\.[A-Z0-9](?:[A-Z0-9-]*[A-Z0-9])?)+$/i;
 const cleanEmail = (s: string) => String(s || '').trim().toLowerCase();
+// A separate release gate keeps new read scopes off until privacy/configuration review.
+const readAvailable = () => env('MAIL_READ_ENABLED') === 'true';
+async function syncInbox(sender?: string) {
+  if (!readAvailable()) return { processed: 0, related: 0, disabled: true };
+  return inboundWorker(db, { host: new URL(env('CRM_SITE_URL')).hostname, sender,
+    token: async (a, timeoutMs) => (await googleToken({ grant_type: 'refresh_token', refresh_token: await unseal(a.refresh_cipher, a.user_id) }, timeoutMs)).access_token });
+}
 // RFC 2047 words are limited to 75 characters; split only at Unicode boundaries.
 function encodedHeader(s: string) {
   const parts: string[] = []; let part = '';
@@ -50,8 +59,8 @@ async function unsubscribeToken(id: string) {
   const key = await crypto.subtle.importKey('raw', encoder.encode(env('MAIL_UNSUBSCRIBE_KEY')), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
   return url64(new Uint8Array(await crypto.subtle.sign('HMAC', key, encoder.encode(id))));
 }
-async function googleToken(params: Record<string, string>) {
-  const r = await fetch('https://oauth2.googleapis.com/token', { method: 'POST', body: new URLSearchParams({ ...params, client_id: env('GOOGLE_CLIENT_ID'), client_secret: env('GOOGLE_CLIENT_SECRET') }), signal: AbortSignal.timeout(15000) });
+async function googleToken(params: Record<string, string>, timeoutMs = 15000) {
+  const r = await fetch('https://oauth2.googleapis.com/token', { method: 'POST', body: new URLSearchParams({ ...params, client_id: env('GOOGLE_CLIENT_ID'), client_secret: env('GOOGLE_CLIENT_SECRET') }), signal: AbortSignal.timeout(timeoutMs) });
   const data = await r.json();
   if (!r.ok) throw new Error(data.error === 'invalid_grant' ? 'Gmail授权已失效，请重新连接' : '无法刷新Gmail授权，请稍后重新连接');
   return data;
@@ -93,9 +102,12 @@ async function preview(input: any, me: any) {
     if (template.channel !== 'email' || (template.owner_id && template.owner_id !== me.id)) throw new Error('无权使用模板');
   }
   const clients = check(await db.from('clients').select('*').in('id', ids));
+  const archived = check(await db.from('crm_client_state').select('client_id').in('client_id', ids).not('archived_at', 'is', null));
   const flags = check(await db.from('client_tracking').select('client_id,attention_level').in('client_id', ids));
   const suppressed = check(await db.from('mail_suppressions').select('email').in('email', clients.map((c: any) => cleanEmail(c.company_email))));
+  const holds = check(await db.from('crm_mail_review_holds').select('email,expires_at').eq('active', true).in('email', clients.map((c: any) => cleanEmail(c.company_email))));
   const recent = check(await db.from('mail_messages').select('recipient,status,attempted_at,created_at').in('recipient', clients.map((c: any) => cleanEmail(c.company_email))).or(`status.in.(queued,sending),attempted_at.gte.${new Date(Date.now() - 86400000).toISOString()}`));
+  const companyRecent = check(await db.from('mail_messages').select('client_id,status').in('client_id', ids).or(`status.in.(queued,sending),attempted_at.gte.${new Date(Date.now() - 86400000).toISOString()}`));
   const plans = schedule ? check(await db.from('mail_plans').select('recipient').in('recipient', clients.map((c: any) => cleanEmail(c.company_email))).in('status', ['running','paused'])) : [];
   const ready: any[] = [], skipped: any[] = [], seen = new Set();
   for (const id of ids) {
@@ -104,13 +116,16 @@ async function preview(input: any, me: any) {
     if (!c || (me.role !== 'admin' && c.owner_id !== me.id)) { skipped.push({ id, company_name: '无权发送的客户', reason: '客户不存在或不属于你' }); continue; }
     const recipient = cleanEmail(c.company_email);
     let reason = '';
-    if (c.status === '无效' || flags.some((f: any) => f.client_id === id && f.attention_level === '无效')) reason = '无效客户';
+    if (archived.some((s: any) => s.client_id === id)) reason = '客户已归档或合并';
+    else if (c.status === '无效' || flags.some((f: any) => f.client_id === id && f.attention_level === '无效')) reason = '无效客户';
     else if (!emailRE.test(recipient)) reason = '邮箱为空或格式不正确';
     else if (suppressed.some((s: any) => s.email === recipient)) reason = '已退订或退信';
+    else if (holds.some((s: any) => s.email === recipient && (!s.expires_at || Date.parse(s.expires_at) > Date.now()))) reason = '退信待核实，暂缓联系';
     else if (seen.has(recipient)) reason = '本批次邮箱重复';
     else if (plans.some((p: any) => p.recipient === recipient)) reason = '已有定时/循环计划，请先停止原计划';
     else if (schedule && ['已回复','成交'].includes(c.status)) reason = '客户已回复或成交，不能自动循环联系';
     else if (!schedule && recent.some((s: any) => s.recipient === recipient && (['queued', 'sending'].includes(s.status) || ['sent', 'unknown', 'bounced'].includes(s.status)))) reason = '已在队列或24小时内已发送';
+    else if (!schedule && companyRecent.some((s: any) => s.client_id === id && ['queued','sending','sent','unknown','bounced'].includes(s.status))) reason = '该公司已有邮件在队列或24小时内已发送（含其他联系人）';
     if (reason) { skipped.push({ id, company_name: c.company_name, reason }); continue; }
     seen.add(recipient);
     const custom = input.custom && typeof input.custom.subject === 'string' && typeof input.custom.body === 'string' ? input.custom : template;
@@ -131,6 +146,9 @@ async function preview(input: any, me: any) {
 }
 
 async function worker() {
+  // Inbound changes stop queued follow-ups before this minute's send eligibility check.
+  let inbox: any;
+  try { inbox = await syncInbox(); } catch { inbox = { error: '来信同步暂不可用，请在邮件中心核对；不影响发信队列处理' }; }
   const plans = check(await db.rpc('mail_plans_claim')) || [];
   for (const p of plans) {
     const id = crypto.randomUUID();
@@ -149,15 +167,18 @@ async function worker() {
       const campaign = check(await db.from('mail_campaigns').select('status').eq('id', m.campaign_id).single());
       const active = check(await db.from('profiles').select('active').eq('id', m.sender_id).single());
       const suppression = check(await db.from('mail_suppressions').select('email').eq('email', m.recipient).maybeSingle());
+      const hold = check(await db.from('crm_mail_review_holds').select('active,expires_at').eq('email', m.recipient).maybeSingle());
+      const archived = check(await db.rpc('crm_is_archived', { p_client: m.client_id }));
       const currentAccount = check(await db.from('mail_accounts').select('connected,email').eq('user_id', m.sender_id).single());
       const customer = check(await db.from('clients').select('*').eq('id', m.client_id).maybeSingle());
       const plan = check(await db.from('mail_plans').select('status,snapshot').eq('last_message_id', m.id).maybeSingle());
       const flag = check(await db.from('client_tracking').select('attention_level').eq('client_id', m.client_id).maybeSingle());
       const sender = check(await db.from('profiles').select('role').eq('id', m.sender_id).single());
-      const eligible = customer && customer.status !== '无效' && flag?.attention_level !== '无效' && cleanEmail(customer.company_email) === m.recipient && (sender.role === 'admin' || customer.owner_id === m.sender_id);
+      const held = hold?.active && (!hold.expires_at || Date.parse(hold.expires_at) > Date.now());
+      const eligible = !archived && !held && customer && customer.status !== '无效' && flag?.attention_level !== '无效' && cleanEmail(customer.company_email) === m.recipient && (sender.role === 'admin' || customer.owner_id === m.sender_id);
       const planChanged = plan && (plan.status !== 'running' || ['已回复','成交'].includes(customer?.status) || !sameSnapshot(customer || {}, plan.snapshot));
       if (!active.active || !currentAccount.connected || currentAccount.email !== a.email || !eligible || campaign.status !== 'running' || suppression || planChanged) {
-        check(await db.from('mail_messages').update({ status: campaign.status === 'paused' || plan?.status === 'paused' ? 'queued' : 'skipped', error: '发送前任务/账号/客户资料状态已变化' }).eq('id', m.id)); continue;
+        check(await db.from('mail_messages').update({ status: campaign.status === 'paused' || plan?.status === 'paused' ? 'queued' : 'skipped', attempted_at: null, error: '发送前任务/账号/客户资料状态已变化' }).eq('id', m.id)); continue;
       }
       if ((globalThis as any).CRM_MAIL.deliveryReview(m).blocked) throw new Error('邮件内容检查未通过，请修改模板并重新预览；本次未提交Gmail');
       const unsub = `${endpoint()}?route=unsubscribe&token=${await unsubscribeToken(m.id)}`;
@@ -166,6 +187,21 @@ async function worker() {
       const mime = [`From: ${a.email}`, `To: ${m.recipient}`, `Subject: ${encodedHeader(m.subject)}`,
         `Date: ${new Date().toUTCString()}`, `Message-ID: <${m.id}@${new URL(env('CRM_SITE_URL')).hostname}>`, 'MIME-Version: 1.0', 'Content-Type: text/plain; charset=UTF-8',
         'Content-Transfer-Encoding: base64', `List-Unsubscribe: <${unsub}>`, 'List-Unsubscribe-Post: List-Unsubscribe=One-Click', '', base64Body].join('\r\n');
+      const reserved = check(await db.rpc('crm_reserve_company_mail', { p_client: m.client_id, p_message: m.id }));
+      if (!reserved) { check(await db.from('mail_messages').update({ status: 'skipped', attempted_at: null, error: '该公司24小时内已有发送尝试，已避免重复联系' }).eq('id', m.id)); continue; }
+      // Reservation can block another worker; recheck stop/review state immediately before POST.
+      const latest = check(await db.from('mail_messages').select('status').eq('id', m.id).single());
+      if (latest.status !== 'sending') continue;
+      const finalPlan = check(await db.from('mail_plans').select('status,snapshot').eq('last_message_id', m.id).maybeSingle());
+      const finalCustomer = check(await db.from('clients').select('*').eq('id', m.client_id).maybeSingle());
+      const finalHold = check(await db.from('crm_mail_review_holds').select('active,expires_at').eq('email', m.recipient).maybeSingle());
+      const finalSuppression = check(await db.from('mail_suppressions').select('email').eq('email', m.recipient).maybeSingle());
+      const finalArchived = check(await db.rpc('crm_is_archived', { p_client: m.client_id }));
+      if (finalArchived || !finalCustomer || finalCustomer.status === '无效' || cleanEmail(finalCustomer.company_email) !== m.recipient || (sender.role !== 'admin' && finalCustomer.owner_id !== m.sender_id) ||
+          finalSuppression || (finalHold?.active && (!finalHold.expires_at || Date.parse(finalHold.expires_at) > Date.now())) ||
+          (finalPlan && (finalPlan.status !== 'running' || ['已回复','成交'].includes(finalCustomer.status) || !sameSnapshot(finalCustomer, finalPlan.snapshot)))) {
+        check(await db.from('mail_messages').update({ status: 'skipped', attempted_at: null, error: '提交Gmail前已暂停、收到回复或客户资料改变' }).eq('id',m.id).eq('status','sending')); continue;
+      }
       requested = true;
       const r = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', { method: 'POST', headers: { Authorization: `Bearer ${token.access_token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ raw: url64(encoder.encode(mime)) }), signal: AbortSignal.timeout(20000) });
       const result = await r.json();
@@ -190,7 +226,9 @@ async function worker() {
       }
     }
   }
-  return { processed: messages.length };
+  let research: any;
+  try { research = await researchWorker(db); } catch { research = { error: '资料任务暂不可用，队列保留' }; }
+  return { processed: messages.length, inbox, research };
 }
 
 Deno.serve(async req => {
@@ -211,13 +249,22 @@ Deno.serve(async req => {
       const me = check(await db.from('profiles').select('active,work_email').eq('id', row.user_id).single());
       if (!me.active || cleanEmail(me.work_email) !== cleanEmail(identity.email)) throw new Error('授权邮箱与CRM个人资料中的工作邮箱不一致，请修改资料后重新连接');
       // Reconnection preserves the owner's configured quota and pacing.
-      const previous = check(await db.from('mail_accounts').select('email,daily_limit').eq('user_id', row.user_id).maybeSingle());
+      const previous = check(await db.from('mail_accounts').select('*').eq('user_id', row.user_id).maybeSingle());
       const saved = check(await db.from('mail_sender_settings').select('daily_limit').eq('user_id', row.user_id).maybeSingle());
       if (previous && previous.email !== cleanEmail(identity.email)) {
         const pending = check(await db.from('mail_messages').select('id').eq('sender_id', row.user_id).in('status', ['queued','sending']).limit(1));
         if (pending.length) throw new Error('请先取消原邮箱的待发送任务，再切换发件邮箱');
       }
-      const patch = { email: cleanEmail(identity.email), refresh_cipher: await seal(token.refresh_token, row.user_id), connected: true, daily_limit: saved?.daily_limit ?? previous?.daily_limit ?? 50, updated_at: new Date().toISOString() };
+      const patch: any = { email: cleanEmail(identity.email), refresh_cipher: await seal(token.refresh_token, row.user_id), connected: true, daily_limit: saved?.daily_limit ?? previous?.daily_limit ?? 50, updated_at: new Date().toISOString() };
+      if (row.request_read) {
+        if (!readAvailable() || !String(token.scope).split(' ').includes('https://www.googleapis.com/auth/gmail.readonly')) throw new Error('未取得读取授权，发信连接保持原状；请返回CRM重试');
+        const profile = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/profile', { headers: { Authorization: `Bearer ${token.access_token}` }, signal: AbortSignal.timeout(10000) });
+        if (!profile.ok) throw new Error('无法建立读取同步起点，发信连接保持原状');
+        const p = await profile.json(); if (!p.historyId) throw new Error('Gmail未返回同步起点');
+        const preserve = previous?.read_enabled && previous.email === patch.email && previous.read_history_id;
+        const since = new Date(Date.now() - (row.seed_days === 7 ? 7 : 0) * 86400000).toISOString();
+        Object.assign(patch, { read_enabled: true, ...(preserve ? {} : { read_since: since, read_history_id: p.historyId, read_history_page: null, read_seed_since: row.seed_days === 7 ? since : null, read_seed_page: null, read_gap_at: null }), read_error: null });
+      } else Object.assign(patch, { read_enabled: false, read_lease_until: null });
       if (previous) check(await db.from('mail_accounts').update(patch).eq('user_id', row.user_id));
       else check(await db.from('mail_accounts').insert({ user_id: row.user_id, ...patch }));
       return new Response(null, { status: 303, headers: { Location: `${env('CRM_SITE_URL').replace(/\/$/, '')}/#/mail`, 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer' } });
@@ -245,13 +292,18 @@ Deno.serve(async req => {
     if (input.action === 'connect') {
       if (!emailRE.test(me.work_email || '')) throw new Error('请先在个人资料填写要授权的工作邮箱');
       const state = random(), verifier = random();
+      const previous = check(await db.from('mail_accounts').select('read_enabled').eq('user_id', me.id).maybeSingle());
+      const requestRead = input.enable_read === true || (input.enable_read !== false && previous?.read_enabled === true);
+      if (requestRead && !readAvailable()) throw new Error('邮件读取功能等待隐私说明和Google权限配置完成，当前仍可正常发信');
+      if (input.enable_read === true && input.confirm_read !== true) throw new Error('请先阅读并确认邮件同步的数据说明');
+      const seedDays = requestRead && input.seed_days === 7 ? 7 : 0;
       check(await db.from('mail_oauth_states').delete().eq('user_id', me.id));
-      check(await db.from('mail_oauth_states').insert({ state_hash: await hash(state), user_id: me.id, verifier }));
-      const params = new URLSearchParams({ client_id: env('GOOGLE_CLIENT_ID'), redirect_uri: `${endpoint()}?route=callback`, response_type: 'code', access_type: 'offline', prompt: 'consent', scope: 'openid email https://www.googleapis.com/auth/gmail.send', state, login_hint: me.work_email, code_challenge: await hash(verifier), code_challenge_method: 'S256' });
+      check(await db.from('mail_oauth_states').insert({ state_hash: await hash(state), user_id: me.id, verifier, request_read: requestRead, seed_days: seedDays }));
+      const params = new URLSearchParams({ client_id: env('GOOGLE_CLIENT_ID'), redirect_uri: `${endpoint()}?route=callback`, response_type: 'code', access_type: 'offline', prompt: 'consent', scope: 'openid email https://www.googleapis.com/auth/gmail.send' + (requestRead ? ' https://www.googleapis.com/auth/gmail.readonly' : ''), state, login_hint: me.work_email, code_challenge: await hash(verifier), code_challenge_method: 'S256' });
       return json({ url: `https://accounts.google.com/o/oauth2/v2/auth?${params}` });
     }
     if (input.action === 'status') {
-      const a = check(await db.from('mail_accounts').select('email,connected,daily_limit,next_send_at').eq('user_id', me.id).maybeSingle());
+      const a = check(await db.from('mail_accounts').select('email,connected,daily_limit,next_send_at,read_enabled,read_since,read_last_sync_at,read_error,read_gap_at').eq('user_id', me.id).maybeSingle());
       const saved = check(await db.from('mail_sender_settings').select('user_id,daily_limit').eq('user_id', me.id).maybeSingle());
       let limits: any[] = [];
       if (me.role === 'admin') {
@@ -259,12 +311,27 @@ Deno.serve(async req => {
         const accounts = check(await db.from('mail_accounts').select('user_id,daily_limit'));
         limits = [...accounts.filter((x: any) => !preferences.some((p: any) => p.user_id === x.user_id)), ...preferences];
       }
-      return json({ account: a, daily_limit: saved?.daily_limit ?? a?.daily_limit ?? 50, limits, configured: true });
+      const research = researchCapabilities();
+      return json({ account: a, daily_limit: saved?.daily_limit ?? a?.daily_limit ?? 50, limits, configured: true, read_available: readAvailable(), research: { website: research.reader, search: research.search } });
+    }
+    if (input.action === 'sync') {
+      if (!readAvailable()) throw new Error('邮件同步尚未启用，当前没有读取邮箱');
+      return json(await syncInbox(me.id));
+    }
+    if (input.action === 'read-disable') {
+      check(await db.from('mail_accounts').update({ read_enabled: false, read_lease_until: null }).eq('user_id', me.id));
+      check(await db.from('crm_inbound_queue').delete().eq('sender_id', me.id));
+      return json({ ok: true });
+    }
+    if (input.action === 'sync-retry') {
+      check(await db.from('crm_inbound_queue').update({ attempts: 0, error: null }).eq('sender_id', me.id).gte('attempts', 4));
+      return json({ ok: true });
     }
     if (input.action === 'disconnect') {
       const a = check(await db.from('mail_accounts').select('*').eq('user_id', me.id).maybeSingle());
       if (a) {
-        check(await db.from('mail_accounts').update({ connected: false }).eq('user_id', me.id));
+        check(await db.from('mail_accounts').update({ connected: false, read_enabled: false, read_lease_until: null }).eq('user_id', me.id));
+        check(await db.from('crm_inbound_queue').delete().eq('sender_id', me.id));
         check(await db.from('mail_campaigns').update({ status: 'paused' }).eq('sender_id', me.id).eq('status', 'running'));
         check(await db.from('mail_plans').update({ status: 'paused', last_error: '邮箱已断开，请连接后手动继续' }).eq('sender_id', me.id).eq('status', 'running'));
         // Revoke with Google after disabling local sends. No token in URL or logs.
