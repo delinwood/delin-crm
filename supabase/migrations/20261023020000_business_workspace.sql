@@ -303,6 +303,7 @@ begin
   select pg_get_functiondef('public.set_client_attention(uuid,text,text)'::regprocedure) into original;
   if position('crm_is_archived' in original)=0 then
     patched:=replace(original,'if not found or not (public.is_admin()','if not found or public.crm_is_archived(p_client_id) or not (public.is_admin()');
+    if patched=original then patched:=replace(original,'if not found or not(public.is_admin()','if not found or public.crm_is_archived(p_client_id) or not(public.is_admin()'); end if;
     if patched=original then raise exception 'Cannot identify customer attention ownership guard'; end if;
     execute patched;
   end if;
