@@ -213,14 +213,14 @@
     $$('.tab').forEach(b => b.onclick = () => { TAB = b.dataset.tab; $$('.tab').forEach(x => x.classList.toggle('on', x === b)); $$('.tabp').forEach(p => p.hidden = p.dataset.p !== TAB); });
     $$('[data-nx]').forEach(b => b.onclick = () => { $('#logf').nx.value = b.dataset.nx ? UI.today(+b.dataset.nx) : ''; });
     $('#logf').onsubmit = async e => { e.preventDefault(); const f = e.target;
-      try { await DB.addLog(id, { entry_date: f.d.value, channel: f.ch.value, content: f.t.value.trim(), next_follow_up: f.nx.value, status: f.st.value }); UI.toast('已保存 Saved'); await UI.refresh(); detail(id); } catch (err) { UI.toast(err.message, 1); } };
+      try { await DB.addLog(id, { entry_date: f.d.value, channel: f.ch.value, content: f.t.value.trim(), next_follow_up: f.nx.value, status: f.st.value }); UI.toast('已保存 Saved'); await UI.refresh(); await UI.views.client.render(id); } catch (err) { UI.toast(err.message, 1); } };
     $('#qf').onsubmit = async e => { e.preventDefault(); const f = e.target, q = {}; ['product', 'spec', 'currency', 'price', 'unit', 'qty', 'incoterm', 'quote_date', 'valid_until', 'notes'].forEach(k => q[k] = f[k].value || null);
-      q.price = +q.price; q.qty = q.qty ? +q.qty : null; try { await DB.addQuote(id, q); TAB = 'quote'; UI.toast('报价已记录'); await UI.refresh(); detail(id); } catch (err) { UI.toast(err.message, 1); } };
+      q.price = +q.price; q.qty = q.qty ? +q.qty : null; try { await DB.addQuote(id, q); TAB = 'quote'; UI.toast('报价已记录'); await UI.refresh(); await UI.views.client.render(id); } catch (err) { UI.toast(err.message, 1); } };
     $('#sf').onsubmit = async e => { e.preventDefault(); const f = e.target, s = {}; ['items', 'status', 'sent_date', 'courier', 'tracking_no'].forEach(k => s[k] = f[k].value || null);
-      try { await DB.addSample(id, s); TAB = 'sample'; UI.toast('样品已登记'); detail(id); } catch (err) { UI.toast(err.message, 1); } };
+      try { await DB.addSample(id, s); TAB = 'sample'; UI.toast('样品已登记'); await UI.views.client.render(id); } catch (err) { UI.toast(err.message, 1); } };
     $$('[data-sst]').forEach(el => el.onchange = async () => { await DB.updateSample(el.dataset.sst, { status: el.value }); UI.toast('已更新'); });
     $$('[data-sfb]').forEach(el => el.onchange = async () => { await DB.updateSample(el.dataset.sfb, { feedback: el.value }); UI.toast('已更新'); });
-    $$('[data-qdel]').forEach(b => b.onclick = async () => { if (confirm('删除该报价？')) { await DB.deleteQuote(b.dataset.qdel); detail(id); } });
+    $$('[data-qdel]').forEach(b => b.onclick = async () => { if (confirm('删除该报价？')) { await DB.deleteQuote(b.dataset.qdel); await UI.views.client.render(id); } });
     $('#edit').onclick = () => form(c);
     const d = $('#del'); if (d) d.onclick = () => removeClients([c], d);
   }
