@@ -6,7 +6,7 @@
 
   async function home() {
     const me = UI.ME, admin = me.role === 'admin', t = UI.today();
-    const mine = UI.CLIENTS.filter(c => admin ? true : (c.owner_id === me.id || c.created_by === me.id)).filter(c => !UI.isInvalid(c));
+    const mine = UI.CLIENTS.filter(c => admin ? true : c.owner_id === me.id).filter(c => !UI.isInvalid(c));
     const emailDue = mine.filter(c => (admin || c.owner_id === me.id) && UI.emailDue(c))
       .sort((a, b) => ['紧急','重要','普通'].indexOf(UI.attention(a)) - ['紧急','重要','普通'].indexOf(UI.attention(b)));
     const scope = admin ? mine : mine;
