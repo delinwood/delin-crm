@@ -56,7 +56,7 @@
         <select id="b_pri"><option value="">优先级…</option>${C.PRIORITIES.map(v => opt(v, v, '')).join('')}</select>` : ''}
         <select id="b_status"><option value="">状态…</option>${C.STATUSES.filter(s => admin || s[0] !== '无效').map(s => opt(s[0], s[0], '')).join('')}</select>
         <input id="b_tag" placeholder="+ 标签 tag" style="width:110px"><input id="b_next" type="date" title="下次跟进">
-        <button class="primary sm" id="b_apply">应用 Apply</button><button class="primary sm" id="b_mail">批量发送邮件</button><button class="ghost sm" id="b_export">导出所选</button>${canDelete ? '<button class="ghost sm danger" id="b_delete">批量删除所选客户</button>' : ''}<button class="ghost sm" id="b_clear">取消选择</button></div>
+        <button class="primary sm" id="b_apply">应用 Apply</button><button class="primary sm" id="b_mail">批量发送邮件</button><button class="ghost sm" id="b_export">导出所选</button>${canDelete ? '<button class="ghost sm danger" id="b_delete">批量删除（移入回收站）</button>' : ''}<button class="ghost sm" id="b_clear">取消选择</button></div>
       <section class="card tbl"><table><thead><tr><th class="ck"><input type="checkbox" id="selall"></th>${th('company_name', '公司 Company')}<th>类型</th>${th('country', '地区 Location')}<th>产品 Products</th><th>客户标记</th>${th('priority', '优先级')}${th('status', '状态')}${admin ? th('owner_id', '业务员') : ''}${th('next_follow_up', '下次跟进')}${th('last_follow_up', '最近跟进')}<th>当地时间</th></tr></thead><tbody id="rows"></tbody></table></section>
       <div class="pager" id="pager"></div>`, 'list');
     draw();
@@ -98,18 +98,19 @@
     if (!await deleteAllowed()) return UI.toast('仅老板账号可以删除客户', 1);
     const snapshot = clients.map(c => ({ id: c.id, company_name: c.company_name, country: c.country }));
     const names = snapshot.slice(0, 15).map(c => `${c.company_name} (${c.country || '未填写国家'})`).join('\n');
-    if (!confirm(`确认永久删除所选 ${snapshot.length} 家客户？\n\n${names}${snapshot.length > 15 ? '\n……其余 ' + (snapshot.length - 15) + ' 家' : ''}\n\n相关跟进、报价和样品记录也可能随客户一并删除。`)) return;
+    const ending = DB.mode === 'demo' ? '演示模式会删除这些本地客户及相关历史；正式系统使用可恢复回收站。' : '客户及原始历史会移入回收站，可由老板恢复。相关自动邮件停止，未发送邮件取消；恢复客户不会重新开始发送。';
+    if (!confirm(`确认将所选 ${snapshot.length} 家客户移出当前列表？\n\n${names}${snapshot.length > 15 ? '\n……其余 ' + (snapshot.length - 15) + ' 家' : ''}\n\n${ending}`)) return;
     const button = detailButton || $('#b_delete');
-    if (button) { button.disabled = true; button.textContent = '正在删除…'; }
+    if (button) { button.disabled = true; button.textContent = DB.mode === 'demo' ? '正在删除…' : '正在移入回收站…'; }
     try {
       const deleted = await DB.bulkDeleteClients(snapshot.map(c => c.id));
       if (!Array.isArray(deleted) || deleted.length !== snapshot.length) throw new Error('删除结果不完整，请刷新核对');
       deleted.forEach(id => SEL.delete(id));
       await UI.refresh(); PAGE = 1;
-      UI.toast(`已删除 ${deleted.length} 家客户`);
+      UI.toast(DB.mode === 'demo' ? `已删除 ${deleted.length} 家演示客户` : `已将 ${deleted.length} 家客户移入回收站`);
       if (detailButton) location.hash = '#/list'; else await list();
     } catch (e) { UI.toast(e.message, 1); }
-    finally { if (button && button.isConnected) { button.disabled = false; button.textContent = detailButton ? '删除' : '批量删除所选客户'; } }
+    finally { if (button && button.isConnected) { button.disabled = false; button.textContent = detailButton ? '删除（移入回收站）' : '批量删除（移入回收站）'; } }
   }
   const pageRows = () => UI.filtered().slice((PAGE - 1) * PER, PAGE * PER);
   function draw() {
@@ -170,7 +171,7 @@
       ${usWarn ? '<div class="warn">⚠️ 美国市场不推强化/实木复合地板 (No laminate/engineered for USA)</div>' : ''}
       ${lt && !lt.work ? `<div class="info">🌙 客户当地现在是 ${esc(lt.text)}，非工作时间——建议邮件或定时发送，电话/WhatsApp 等对方上班再联系。</div>` : ''}
       <div class="grid2 dgrid"><div class="dprof">
-        <section class="card pad"><div class="sec-h"><h2>客户资料 <small>Profile</small></h2><div><button class="ghost sm" id="edit">编辑 Edit</button>${canDelete ? ` <button class="ghost sm danger" id="del">删除</button>` : ''}</div></div>
+        <section class="card pad"><div class="sec-h"><h2>客户资料 <small>Profile</small></h2><div><button class="ghost sm" id="edit">编辑 Edit</button>${canDelete ? ` <button class="ghost sm danger" id="del">删除（移入回收站）</button>` : ''}</div></div>
           <h3>公司信息 Company</h3>${kv('地址 Address', esc(c.address))}${kv('公司电话 Phone', c.company_phone ? UI.link(UI.tel(c.company_phone, c), c.company_phone) : '')}${kv('WhatsApp', wa ? UI.link(wa, c.whatsapp || c.company_phone + '（同公司电话，未核实是否开通）') : '')}
           ${kv('公司邮箱 Email', c.company_email ? UI.link('mailto:' + c.company_email, c.company_email) : '')}${kv('网站 Website', c.website ? UI.link(UI.url(c.website), c.website) : '')}
           <h3>采购联系人 Purchasing contact</h3>${kv('姓名 Name', esc(c.contact_name))}${kv('职位 Title', esc(c.contact_title))}${kv('LinkedIn', c.contact_linkedin ? UI.link(UI.url(c.contact_linkedin), c.contact_linkedin) : '')}
