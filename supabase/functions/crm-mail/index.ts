@@ -125,7 +125,9 @@ async function preview(input: any, me: any) {
       ready.push({ client_id: id, company_name: c.company_name, recipient, snapshot: customerSnapshot(c), drafts });
     } else ready.push({ client_id: id, company_name: c.company_name, recipient, ...draft });
   }
-  return { ready, skipped, sender: account.email, ...(schedule ? { schedule } : {}) };
+  const delivery = (globalThis as any).CRM_MAIL.deliveryBatch(ready, schedule);
+  if (delivery.blocked) throw new Error('邮件检查发现未替换字段、非法字符或空白内容，请修改模板后重新预览');
+  return { ready, skipped, sender: account.email, delivery, ...(schedule ? { schedule } : {}) };
 }
 
 async function worker() {
@@ -157,11 +159,12 @@ async function worker() {
       if (!active.active || !currentAccount.connected || currentAccount.email !== a.email || !eligible || campaign.status !== 'running' || suppression || planChanged) {
         check(await db.from('mail_messages').update({ status: campaign.status === 'paused' || plan?.status === 'paused' ? 'queued' : 'skipped', error: '发送前任务/账号/客户资料状态已变化' }).eq('id', m.id)); continue;
       }
+      if ((globalThis as any).CRM_MAIL.deliveryReview(m).blocked) throw new Error('邮件内容检查未通过，请修改模板并重新预览；本次未提交Gmail');
       const unsub = `${endpoint()}?route=unsubscribe&token=${await unsubscribeToken(m.id)}`;
       const body = `${m.body}\n\nIf you prefer not to receive further business enquiries from us, unsubscribe: ${unsub}`;
       const base64Body = b64(encoder.encode(body)).match(/.{1,76}/g)!.join('\r\n');
       const mime = [`From: ${a.email}`, `To: ${m.recipient}`, `Subject: ${encodedHeader(m.subject)}`,
-        `Message-ID: <${m.id}@${new URL(env('CRM_SITE_URL')).hostname}>`, 'MIME-Version: 1.0', 'Content-Type: text/plain; charset=UTF-8',
+        `Date: ${new Date().toUTCString()}`, `Message-ID: <${m.id}@${new URL(env('CRM_SITE_URL')).hostname}>`, 'MIME-Version: 1.0', 'Content-Type: text/plain; charset=UTF-8',
         'Content-Transfer-Encoding: base64', `List-Unsubscribe: <${unsub}>`, 'List-Unsubscribe-Post: List-Unsubscribe=One-Click', '', base64Body].join('\r\n');
       requested = true;
       const r = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', { method: 'POST', headers: { Authorization: `Bearer ${token.access_token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ raw: url64(encoder.encode(mime)) }), signal: AbortSignal.timeout(20000) });
