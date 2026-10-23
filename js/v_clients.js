@@ -7,12 +7,13 @@
 
   function filtered(list) {
     const q = (F.q || '').toLowerCase().trim(), t = UI.today();
-    return list.filter(c => (F.group === 'invalid' || F.status === '无效' || F.attention === '无效' ? UI.isInvalid(c) : !UI.isInvalid(c))
+    return list.filter(c => (UI.ME.role === 'admin' || c.owner_id === UI.ME.id)
+      && (F.group === 'invalid' || F.status === '无效' || F.attention === '无效' ? UI.isInvalid(c) : !UI.isInvalid(c))
       && (!F.attention || UI.attention(c) === F.attention) && (!F.email_due || UI.emailDue(c))
       && (!q || [c.company_name, c.city, c.website, c.company_email, c.contact_name, (c.tags || []).join(' ')].join(' ').toLowerCase().includes(q))
       && (!F.country || c.country === F.country) && (!F.state || c.state === F.state)
       && (!F.product || (c.products || []).includes(F.product)) && (!F.priority || c.priority === F.priority)
-      && (!F.type || c.customer_type === F.type) && (!F.owner || (F.owner === '_none' ? !c.owner_id : c.owner_id === F.owner))
+      && (!F.type || c.customer_type === F.type) && (UI.ME.role !== 'admin' || !F.owner || (F.owner === '_none' ? !c.owner_id : c.owner_id === F.owner))
       && (!F.status || (F.status === '无效' ? UI.isInvalid(c) : c.status === F.status)) && (!F.tag || (c.tags || []).includes(F.tag))
       && (!F.due || (F.due === 'overdue' ? (c.next_follow_up && c.next_follow_up < t) : F.due === 'today' ? c.next_follow_up === t : F.due === 'week' ? (c.next_follow_up && c.next_follow_up <= UI.today(7)) : !c.next_follow_up)));
   }
@@ -27,7 +28,7 @@
 
   // ---------------- LIST ----------------
   async function list() {
-    const admin = UI.ME.role === 'admin', C2 = UI.CLIENTS, saved = await DB.listSavedFilters();
+    const admin = UI.ME.role === 'admin', C2 = UI.CLIENTS.filter(c => admin || c.owner_id === UI.ME.id), saved = await DB.listSavedFilters();
     const canDelete = await deleteAllowed();
     const states = uniq(C2.filter(c => !F.country || c.country === F.country).map(c => c.state)), tags = uniq(C2.flatMap(c => c.tags || []));
     const th = (k, l) => `<th class="sortable ${SORT.k === k ? 'on' : ''}" data-k="${k}">${l}${SORT.k === k ? (SORT.d > 0 ? ' ▲' : ' ▼') : ''}</th>`;
