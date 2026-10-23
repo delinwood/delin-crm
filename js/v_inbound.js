@@ -45,5 +45,4 @@
     if($('#syncDisable'))$('#syncDisable').onclick=async()=>{if(!confirm('停止系统后续读取（已发出的请求可能仍会完成），保留已关联记录？这不会撤销Google授权；如要彻底撤销，请在Google账号移除此应用后重新连接仅发信权限。'))return;try{await api('read-disable');await render();}catch(e){UI.toast(e.message,1);}};
   }
   UI.views.inbound={render};
-  const center=UI.views.mail.render;UI.views.mail.render=async()=>{await center();const actions=document.querySelector('.pagehead');if(actions){const a=document.createElement('a');a.href='#/inbound';a.className='btn ghost';a.textContent='客户回复 / 退信同步';actions.append(a);}};
 })();

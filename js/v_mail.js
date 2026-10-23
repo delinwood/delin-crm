@@ -106,16 +106,17 @@
         allRows('mail_plans', q => q.select('*').or(`status.in.(running,paused),created_at.gte.${new Date(Date.now()-30*86400000).toISOString()}`).order('created_at',{ascending:false}).order('id'))
       ]);
     } catch (e) { error = e.message; }
+    if (location.hash !== '#/mail') return;
     const date = d => d ? new Date(d).toLocaleDateString('sv-SE') : '';
     const today = messages.filter(m => date(m.sent_at) === UI.today());
     const mine = messages.filter(m => m.sender_id === UI.ME.id && Date.parse(m.attempted_at || '') > Date.now() - 86400000).length;
     const isAdmin = UI.ME.role === 'admin';
     selectedLimitUser ||= UI.ME.id;
-    UI.render(`<div class="pagehead"><h1>邮件中心</h1><div class="actions"><button class="ghost" id="mailRefresh">刷新</button><a class="btn primary" href="#/list">选择客户写邮件</a></div></div>
+    UI.render(`<div class="pagehead"><h1>邮件中心</h1><div class="actions"><button class="ghost" id="mailRefresh">刷新</button><a class="btn ghost" href="#/inbound">客户回复 / 退信同步</a><a class="btn primary" href="#/list">选择客户写邮件</a></div></div>
       ${error ? `<div class="warn">${esc(error)}。配置完成后才可发信。</div>` : ''}
       <section class="card pad"><h2>我的发件邮箱</h2><p>${account?.connected ? `已连接：<b>${esc(account.email)}</b> <button class="ghost sm" id="mailDisconnect">断开连接</button>` : '<button class="primary" id="mailConnect">连接 Gmail</button>'} · <a href="#/me">修改工作邮箱和签名</a></p>
       <p>系统过去24小时已尝试 ${mine} 封${account ? `，${limitLabel(account.daily_limit)}${account.daily_limit === 0 ? '' : `，剩余 ${Math.max(0, account.daily_limit - mine)} 封`}` : ''}。不设系统每日上限仍保留每分钟1封的节奏；Gmail网页、手机等其他渠道发送的邮件不计入这里，Google可能提前限发。</p>
-      <p class="muted small">连接时只请求邮箱身份和发信权限。此版本不读取收件箱，回复、垃圾箱落点和退信不能自动识别；收到退信后可在记录中标记。</p></section>
+      <p class="muted small">${account?.read_enabled ? '已开启关联来信同步，可在“客户回复 / 退信同步”查看和审查；不会读取并保存所有邮箱正文，无法判断对方垃圾箱落点。' : '当前未开启邮件读取，不会自动同步回复或识别退信。可在“客户回复 / 退信同步”查看启用条件，现有发信权限不受影响；收到退信后仍可在记录中人工标记。'}</p></section>
       <section class="card pad"><h2>投递保护</h2><p>已启用：发信前内容检查、每分钟最多1封、24小时去重、退订链接、已确认退信停发、Google限发后暂停。纯文本发送，不添加追踪像素。</p><p class="muted small">以上不能保证进入收件箱。这里只显示 Gmail 是否接受邮件，不显示对方垃圾箱或投诉率。收到退信请在发送记录中标记；客户拒绝或回复后请停止循环联系。使用 @gmail.com 时身份认证由 Google 发信服务处理；公司域名邮箱需另行核实 SPF、DKIM、DMARC。</p><p><a href="https://support.google.com/mail/answer/81126?hl=zh-Hans" target="_blank" rel="noopener noreferrer">Google 官方发件人指南</a></p></section>
       <section class="kpis">${[['今日已发送（邮箱已接受）', today.length], ['待发送', messages.filter(m => m.status === 'queued').length], ['发送中', messages.filter(m => m.status === 'sending').length], ['今日尝试中失败/待核实', messages.filter(m => date(m.attempted_at) === UI.today() && ['failed','unknown'].includes(m.status)).length]].map(([label, n]) => `<div class="kpi"><b>${n}</b><span>${label}</span></div>`).join('')}</section>
       ${isAdmin ? `<section class="card pad"><h2>今日团队统计</h2><table class="mini"><thead><tr><th>业务员</th><th>今日已发送</th><th>今日失败</th><th>今日待核实</th></tr></thead><tbody>${UI.USERS.map(u => `<tr><td>${esc(u.full_name)}</td><td>${today.filter(m => m.sender_id === u.id).length}</td><td>${messages.filter(m => m.sender_id === u.id && date(m.attempted_at) === UI.today() && m.status === 'failed').length}</td><td>${messages.filter(m => m.sender_id === u.id && date(m.attempted_at) === UI.today() && m.status === 'unknown').length}</td></tr>`).join('')}</tbody></table><h3>老板设置每日额度</h3><form id="mailLimit" class="inl"><label>账号<select name="user">${UI.USERS.filter(u => u.active).map(u => opt(u.id, u.full_name, selectedLimitUser)).join('')}</select></label><label>模式<select name="mode"><option value="limited">自定义限额</option><option value="unlimited">不设系统每日上限</option></select></label><label>过去24小时上限<input name="limit" type="number" min="1" max="2147483647" required></label><button class="primary sm">保存设置</button><span id="mailLimitState" role="status"></span></form><p class="muted small">修改后点击“保存设置”。每个账号独立保存，未连接邮箱的账号也可预先设置。单批仍最多400封；Gmail限额不会被取消。</p></section>` : ''}
