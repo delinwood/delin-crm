@@ -57,7 +57,7 @@
     ['#discoveryFilter','#discoveryScope','#discoveryContact'].forEach(s=>$(s).oninput=draw);draw();
     $('#discoveryExport').onclick=()=>{
       const headers=['候选标题（待核实）','官网（待确认所属）','目标国家（待核实）','公开邮箱','公开电话','产品文字匹配','B端文字匹配','匹配分数','状态','搜索来源','官网读取页面','读取日期'];
-      const cell=v=>'"'+String(v??'').replace(/^[=+\-@\t\r]/,'\'$&').replace(/"/g,'""')+'"';
+      const cell=v=>'"'+String(v??'').replace(/^(?=\s*[=+\-@]|[\t\r])/u,"'").replace(/"/g,'""')+'"';
       const rows=filter().map(c=>[c.title,c.website,job.criteria.country,note(c,'company_email'),note(c,'company_phone'),(c.data.product_matches||[]).map(C.productName).join(' / '),(c.data.buyer_matches||[]).join(' / '),c.score,STATE[c.status],c.sources.map(s=>s.url).join(' '),(c.data.pages||[]).map(p=>p.url).join(' '),c.checked_at||'']);
       UI.download('自动获客_候选待核实_'+UI.today()+'.csv',new Blob(['\ufeff'+[headers,...rows].map(row=>row.map(cell).join(',')).join('\r\n')],{type:'text/csv;charset=utf-8'}));
     };
