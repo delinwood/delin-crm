@@ -24,7 +24,7 @@
 ## 部署顺序
 
 1. 保存原线上版本；在SQL编辑器执行 `supabase/migrations/20261024010000_automatic_prospecting.sql`（事务）。
-2. 运行 `deploy/build-discovery-release.py` 准备浏览器上传文件；已有模块与新模块合并为 `deploy/automatic-prospecting-release/crm-mail-discovery.txt`，替换现有crm-mail函数的单文件部署内容。
+2. 发布现有 `crm-mail` 函数，包含 `discovery.ts`、`research.ts`、`inbound.ts` 和共享邮件合并代码。使用控制台单文件编辑器时，需先合并模块；不要将API密钥写入部署源码。
 3. 现有Mail worker每分钟处理一阶段获客任务；现有收发信和权限保持。新搜索默认关闭。
 4. 发布 `js/v_discovery.js`、`js/v_prospect.js` 和 `index.html`。保留原有其他脚本。
 5. 老板自行完成Tavily免费账号登录/条款同意。确认无卡、无paygo，用独立密钥配置Supabase服务器 `TAVILY_API_KEY` 与 `TAVILY_FREE_SEARCH_ENABLED=true`。密钥不能写入Git、网页或浏览器存储；不更改Gmail权限。
