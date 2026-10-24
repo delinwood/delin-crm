@@ -30,7 +30,8 @@ const discoveryModule = (() => {
   function capabilities() { return { enabled: Deno.env.get('TAVILY_FREE_SEARCH_ENABLED') === 'true' && /^tvly-[A-Za-z0-9_-]{10,250}$/.test(Deno.env.get('TAVILY_API_KEY') || ''), provider: 'Tavily', freeOnly: true, monthlyAttemptCap: 900, maxQueries: 6, maxCandidates: 50, maxWebsitePages: 2 }; }
   function fact(topic: string, re: RegExp, text: string, source: string, at: string) {
     const found = re.exec(text); if (!found) return null;
-    const start = Math.max(0, text.lastIndexOf('\n', found.index - 80));
+    const line = text.lastIndexOf('\n', found.index), minimum = Math.max(0, found.index - 100);
+    const start = line >= minimum ? line + 1 : minimum;
     return { topic, excerpt: clean(text.slice(start, start + 450)), source_url: source, checked_at: at, state: 'pending' };
   }
   function assess(sources: any[], criteria: any) {

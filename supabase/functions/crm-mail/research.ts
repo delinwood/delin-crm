@@ -116,7 +116,7 @@ const researchModule = (() => {
     return out;
   }
   const plain = (s: string) => s.replace(/!\[[^\]]*\]\([^)]*\)/g, '').replace(/\[([^\]]+)\]\([^)]*\)/g, '$1').replace(/^[#>*\s-]+/, '').replace(/\s+/g, ' ').trim();
-  function excerptAt(text: string, pos: number, length = 360) { const start = Math.max(text.lastIndexOf('\n', Math.max(0, pos - 100)), 0); return plain(text.slice(start, start + length)).slice(0, length); }
+  function excerptAt(text: string, pos: number, length = 360) { const line = text.lastIndexOf('\n', pos), minimum = Math.max(0, pos - 100), start = line >= minimum ? line + 1 : minimum; return plain(text.slice(start, start + length)).slice(0, length); }
   function extract(pages: Page[]) {
     const suggestions: Suggestion[] = [], evidence: Evidence[] = [], seen = new Set<string>();
     const add = (field: string, label: string, value: string, page: Page, excerpt: string) => {
