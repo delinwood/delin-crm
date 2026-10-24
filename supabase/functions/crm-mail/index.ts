@@ -2,6 +2,7 @@ import { createClient } from 'npm:@supabase/supabase-js@2';
 import '../../../js/mail-merge.js';
 import { inboundWorker } from './inbound.ts';
 import { researchWorker, researchCapabilities } from './research.ts';
+import { discoveryWorker, discoveryCapabilities } from './discovery.ts';
 
 const env = (key: string) => Deno.env.get(key) || '';
 const origin = () => new URL(env('CRM_SITE_URL') || 'https://delinwood.github.io/delin-crm').origin;
@@ -228,7 +229,9 @@ async function worker() {
   }
   let research: any;
   try { research = await researchWorker(db); } catch { research = { error: '资料任务暂不可用，队列保留' }; }
-  return { processed: messages.length, inbox, research };
+  let discovery: any;
+  try { discovery = await discoveryWorker(db); } catch { discovery = { error: '获客任务暂不可用，队列保留' }; }
+  return { processed: messages.length, inbox, research, discovery };
 }
 
 Deno.serve(async req => {
@@ -312,7 +315,7 @@ Deno.serve(async req => {
         limits = [...accounts.filter((x: any) => !preferences.some((p: any) => p.user_id === x.user_id)), ...preferences];
       }
       const research = researchCapabilities();
-      return json({ account: a, daily_limit: saved?.daily_limit ?? a?.daily_limit ?? 50, limits, configured: true, read_available: readAvailable(), research: { website: research.reader, search: research.search } });
+      return json({ account: a, daily_limit: saved?.daily_limit ?? a?.daily_limit ?? 50, limits, configured: true, read_available: readAvailable(), research: { website: research.reader, search: research.search }, discovery: discoveryCapabilities() });
     }
     if (input.action === 'sync') {
       if (!readAvailable()) throw new Error('邮件同步尚未启用，当前没有读取邮箱');

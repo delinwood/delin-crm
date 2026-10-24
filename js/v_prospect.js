@@ -33,6 +33,7 @@
     const admin = UI.ME.role === 'admin', L = links(P.country, P.group), m = (window.MARKETS || []).find(x => x.country === P.country);
     const block = (title, arr) => `<div class="lgroup"><h3>${title}</h3>${arr.map(([t, u]) => `<a class="lbtn" href="${esc(u)}" target="_blank" rel="noopener">${esc(t)} ↗</a>`).join('')}</div>`;
     UI.render(`<div class="pagehead"><h1>找客户 <small>Prospecting</small></h1><div class="actions">${admin ? '<a class="btn ghost" href="#/pool">🌊 公海 Lead pool</a>' : ''}<a class="btn ghost" href="#/markets">🌍 目标市场</a></div></div>
+      <section class="card pad"><h2>自动获客</h2><p>选择国家、城市和产品，让服务器搜索公开公司网站、读取产品及B端业务证据、整理联系方式。结果先进入候选名单，核实并查重后再导入客户；不会自动发送邮件。</p><a class="btn primary" href="#/discovery">进入自动获客工作台 →</a></section>
       <div class="grid2 wide-left"><section class="card pad">
         <h2>① 搜索启动器 <small>Search launcher — 自动生成当地语言关键词</small></h2>
         <div class="g3"><label>国家 Country<select id="pc">${COUNTRIES.map(c => opt(c, c, P.country)).join('')}</select></label>
@@ -47,17 +48,7 @@
         <div id="qares"></div>
         <h3>只查重 Duplicate check only</h3><form id="dq" class="g3"><input name="n" placeholder="公司名 Name"><input name="w" placeholder="网站 Website"><input name="p" placeholder="电话 Phone"><div class="span3 right"><button class="ghost sm">查重 Check</button></div></form><div id="dqres"></div>
       </section></div>
-      <section class="card pad"><h2>③ 批量找客户脚本 <small>Prospecting script (run on the box / any PC with Python 3)</small></h2>
-        <p>自动：发现 → 打开官网核实（联系页/关于页）→ 提取电话、通用邮箱(info@/sales@)、地址、产品证据、是否批发/进口 → 打分 → 输出 CRM 导入 CSV。<b>不会编造联系人</b>；找不到的字段留空。</p>
-<pre>cd /workspace/flooring_crm
-# A) 用你自己的网址清单（来自 Google/ImportYeti/展会名单，每行一个）
-python3 tools/prospect.py --country CA --product spc,wpc_decking --domains my_sites.txt --n 40
-# B) 自动搜索（Brave Search API 免费额度，需 key）
-BRAVE_API_KEY=xxxx python3 tools/prospect.py --country DE --product spc,wall_panels --provider brave --n 30 \\
-      --existing clients_export.csv     # 跳过 CRM 已有客户（先在客户列表导出 CSV）
-# C) 免 key：OpenStreetMap 地板店/建材批发（命中率低，服务器偶尔繁忙）
-python3 tools/prospect.py --country AU --product spc --provider overpass --n 30</pre>
-        <p class="muted small">输出：prospect_out/&lt;国家&gt;_&lt;日期&gt;/crm_import.csv（管理员 → 管理 → 导入）+ review.csv（全部候选及淘汰原因）。国家代码：US CA GB AU DE FR NL PL IT ES；产品：spc laminate engineered wall_panels acoustic wpc_decking。</p></section>`, 'prospect');
+      <section class="card pad"><h2>怎样得到可靠客户</h2><p>自动获客用于发现和整理公开线索。业务员需核对公司身份、经营国家、销售产品和批发或工程采购依据；进口记录、仓库和采购量以独立证据为准。搜索排名不代表进口量排名。</p><p>也可以继续使用上面的Google、地图、行业目录和展会链接人工查找，再通过快速录入保存经核实的公司。</p></section>`, 'prospect');
     $('#pc').onchange = e => { P.country = e.target.value; save(); prospect(); }; $('#pg').onchange = e => { P.group = e.target.value; save(); prospect(); };
     $('#qa').onsubmit = async e => { e.preventDefault(); const url = e.target.url.value.trim(); $('#qares').innerHTML = '<p class="muted">抓取中… Fetching</p>';
       let info = {}; try { info = await DB.fetchSite(url); } catch (err) { info = { website: url, error: err.message }; }
