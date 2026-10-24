@@ -200,9 +200,23 @@ const researchModule = (() => {
       return { processed: 1, status: 'failed', error: message };
     }
   }
-  return { worker, capabilities };
+  // Discovery may read an unconfirmed, public candidate website. Its output is
+  // staged evidence only; the caller cannot turn it into a verified CRM field.
+  async function inspectWebsite(value: string, timeBudgetMs = 16000) {
+    const budget: Budget = { end: Date.now() + Math.max(6000, Math.min(18000, timeBudgetMs)) };
+    const root = publicURL(value), dns = new Set<string>(), pages = [await readPage(root, root, budget, dns)], warnings: string[] = [];
+    const next = links(pages[0], root)[0];
+    if (next && budget.end - Date.now() > 4000) {
+      try { pages.push(await readPage(next, root, budget, dns)); } catch { warnings.push('联系或介绍页未能读取，请人工打开来源核实'); }
+    }
+    return { pages, ...extract(pages), warnings };
+  }
+  return { worker, capabilities, inspectWebsite, publicURL, smallJSON };
 })();
 
 /** Service-role integration: await researchWorker(db); processes at most one leased company. */
 export const researchWorker = researchModule.worker;
 export function researchCapabilities() { return researchModule.capabilities(); }
+export const inspectPublicWebsite = researchModule.inspectWebsite;
+export const researchPublicURL = researchModule.publicURL;
+export const researchSmallJSON = researchModule.smallJSON;
