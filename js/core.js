@@ -54,7 +54,7 @@
       <nav class="tabbar">${[nav[0], nav[1], nav[2], nav[3], admin ? NAV[6] : NAV[4]].map(n => `<a href="${n[1]}" class="${active === n[0] ? 'on' : ''}"><span>${n[2]}</span>${n[3]}${n[0] === 'home' && od ? `<b class="dot">${od}</b>` : ''}</a>`).join('')}</nav>`;
   };
   UI.bindShell = () => {
-    $('#logout').onclick = async () => { await DB.logout(); UI.ME = null; location.hash = '#/login'; route(); };
+    $('#logout').onclick = async () => { await DB.logout(); UI.ME = null; UI.invalidateDirectory(); location.hash = '#/login'; route(); };
     const r = $('#resetDemo'); if (r) r.onclick = e => { e.preventDefault(); if (confirm('重置所有演示数据？Reset demo data?')) { DB.reset(); route(); } };
   };
   UI.render = (inner, active) => { $('#app').innerHTML = UI.shell(inner, active); UI.bindShell(); window.scrollTo(0, 0); };
@@ -69,15 +69,15 @@
       <button class="primary wide">登录 Sign in</button><div class="err" id="lerr"></div></form>
       ${cfg.MODE === 'demo' ? '<p class="hint">演示账号 Demo: <b>admin / admin123</b>（老板）· <b>sales1 ~ sales4 / sales123</b>（业务员）</p>' : ''}</div></div>`;
     $('#lf').onsubmit = async e => { e.preventDefault(); const f = e.target;
-      try { UI.ME = await DB.login(f.u.value, f.p.value); location.hash = '#/home'; route(); } catch (err) { $('#lerr').textContent = err.message; } };
+      try { UI.ME = await DB.login(f.u.value, f.p.value); UI.invalidateDirectory(); location.hash = '#/home'; route(); } catch (err) { $('#lerr').textContent = err.message; } };
   }
-  UI.refresh = async () => { [UI.USERS, UI.CLIENTS] = await Promise.all([DB.listUsers(), DB.listClients()]); };
+    // Reuse the clients and users snapshot during rapid navigation.  const DIRECTORY_TTL = 30000;  let directoryLoadedAt = 0, directoryRequest = null, directoryEpoch = 0;  UI.invalidateDirectory = () => { directoryLoadedAt = 0; directoryEpoch++; directoryRequest = null; };  UI.refresh = async ({ force = true } = {}) => {    if (!force && directoryLoadedAt && Date.now() - directoryLoadedAt < DIRECTORY_TTL) return;    if (directoryRequest) {      if (!force || directoryRequest.force) return directoryRequest.promise;      try { await directoryRequest.promise; } catch (_) { /* Retry below after failure. */ }    }    const epoch = directoryEpoch, request = { force, promise: null };    request.promise = Promise.all([DB.listUsers(), DB.listClients()]).then(([users, clients]) => {      if (epoch === directoryEpoch) { UI.USERS = users; UI.CLIENTS = clients; directoryLoadedAt = Date.now(); }    }).finally(() => { if (directoryRequest === request) directoryRequest = null; });    directoryRequest = request;    return request.promise;  };
 
   async function route() {
     try {
       if (!UI.ME) UI.ME = await DB.currentUser();
       if (!UI.ME) return viewLogin();
-      await UI.refresh();
+      await UI.refresh({ force: false });      if (currentNavigation !== navigation) return;
       const h = location.hash || '#/home', [, name, arg] = h.match(/^#\/([^/?]+)\/?([^?]*)/) || [, 'home'];
       const v = UI.views[name] || UI.views.home;
       if (v.admin && UI.ME.role !== 'admin') return UI.views.home.render();
