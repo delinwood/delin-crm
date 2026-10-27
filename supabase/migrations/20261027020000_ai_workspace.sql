@@ -3,10 +3,16 @@ alter table public.crm_learning_materials add column if not exists ai_text text 
 alter table public.crm_learning_materials add column if not exists ai_allowed boolean not null default false;
 create table if not exists public.crm_ai_settings(
  id boolean primary key default true check(id), enabled boolean not null default false,
- private_consent boolean not null default false, daily_limit integer not null default 20 check(daily_limit between 1 and 200),
+ private_consent boolean not null default false, daily_limit integer not null default 0 check(daily_limit between 0 and 200),
  updated_by uuid references public.profiles(id), updated_at timestamptz not null default now()
 );
 insert into public.crm_ai_settings(id) values(true) on conflict do nothing;
+alter table public.crm_ai_settings add column if not exists daily_token_limit integer not null default 50000 check(daily_token_limit between 1000 and 10000000);
+alter table public.crm_ai_settings drop constraint if exists crm_ai_settings_daily_limit_check;
+alter table public.crm_ai_settings add constraint crm_ai_settings_daily_limit_check check(daily_limit between 0 and 200);
+alter table public.crm_ai_settings alter column daily_limit set default 0;
+update public.crm_ai_settings set daily_limit=0 where id;
+
 create table if not exists public.crm_ai_providers(
  id text primary key check(id in('qwen','gemini')), model text not null default '',
  enabled boolean not null default false, free_only_verified boolean not null default false,
@@ -65,8 +71,10 @@ begin
  if p_task in('reply','research','daily','business') and (cfg.private_consent is not true or provider.private_allowed is not true) then raise exception '该模型未获准处理内部业务资料'; end if;
  select coalesce((select daily_limit from public.crm_ai_user_limits where user_id=p_user),cfg.daily_limit) into ceiling;
  select count(distinct request_id) into cnt from public.crm_ai_requests where user_id=p_user and (created_at at time zone 'Asia/Shanghai')::date=(now() at time zone 'Asia/Shanghai')::date;
- if cnt>=ceiling and not exists(select 1 from public.crm_ai_requests where request_id=p_request and user_id=p_user and (created_at at time zone 'Asia/Shanghai')::date=(now() at time zone 'Asia/Shanghai')::date) then raise exception '今日AI次数已用完，不会转付费'; end if;
+ if ceiling>0 and cnt>=ceiling and not exists(select 1 from public.crm_ai_requests where request_id=p_request and user_id=p_user and (created_at at time zone 'Asia/Shanghai')::date=(now() at time zone 'Asia/Shanghai')::date) then raise exception '今日AI次数已用完，不会转付费'; end if;
  if (select count(*) from public.crm_ai_requests where user_id=p_user and created_at>now()-interval '1 minute')>=6 then raise exception '请求过于频繁，请稍后重试'; end if;
+ select coalesce(sum(r.charged_tokens),0) into spent from public.crm_ai_requests r where (r.created_at at time zone 'Asia/Shanghai')::date=(now() at time zone 'Asia/Shanghai')::date;
+ if spent+p_tokens>cfg.daily_token_limit then raise exception '全公司今日AI Token安全额度已用完，明日恢复；不会转付费'; end if;
  select coalesce(sum(r.charged_tokens),0) into spent from public.crm_ai_requests r where r.provider=p_provider;
  if spent+p_tokens>provider.token_budget then raise exception '模型免费安全额度不足，已暂停'; end if;
  insert into public.crm_ai_requests(id,request_id,user_id,provider,task,client_id,reserved_tokens,charged_tokens,question)
@@ -79,7 +87,7 @@ returns void language plpgsql security definer set search_path=public,pg_temp as
 declare v jsonb; pid text; limituser uuid; budget bigint; spent bigint; expiry timestamptz;
 begin
  if public.is_active_user() is not true or public.is_admin() is not true then raise exception '仅老板可配置AI' using errcode='42501'; end if;
- if p_daily is null or p_daily not between 1 and 200 or jsonb_typeof(p_providers) is distinct from 'array' or jsonb_array_length(p_providers)>2 or jsonb_typeof(p_limits) is distinct from 'array' or jsonb_array_length(p_limits)>100 then raise exception '配置格式无效'; end if;
+ if p_daily is null or p_daily not between 0 and 200 or jsonb_typeof(p_providers) is distinct from 'array' or jsonb_array_length(p_providers)>2 or jsonb_typeof(p_limits) is distinct from 'array' or jsonb_array_length(p_limits)>100 then raise exception '配置格式无效'; end if;
  perform pg_advisory_xact_lock(hashtextextended('crm-ai-budget',0));
  update public.crm_ai_settings set enabled=p_enabled,private_consent=p_private,daily_limit=p_daily,updated_by=auth.uid(),updated_at=now() where id;
  for v in select value from jsonb_array_elements(p_providers) loop
@@ -107,9 +115,22 @@ grant execute on function public.crm_ai_save_settings(boolean,boolean,integer,js
 create or replace function public.crm_ai_usage(p_user uuid)
 returns jsonb language sql stable security definer set search_path=public,pg_temp as $$
  select jsonb_build_object('providers',coalesce((select jsonb_object_agg(provider,spent) from(select provider,sum(charged_tokens) spent from public.crm_ai_requests group by provider)t),'{}'),
+ 'today_tokens',(select coalesce(sum(charged_tokens),0) from public.crm_ai_requests where (created_at at time zone 'Asia/Shanghai')::date=(now() at time zone 'Asia/Shanghai')::date),
  'today_used',(select count(distinct request_id) from public.crm_ai_requests where user_id=p_user and (created_at at time zone 'Asia/Shanghai')::date=(now() at time zone 'Asia/Shanghai')::date));
 $$;
 revoke all on function public.crm_ai_usage(uuid) from public,anon,authenticated;
 grant execute on function public.crm_ai_usage(uuid) to service_role;
+
+create or replace function public.crm_ai_set_daily_tokens(p_tokens integer)
+returns void language plpgsql security definer set search_path=public,pg_temp as $$
+begin
+ if public.is_active_user() is not true or public.is_admin() is not true then raise exception '仅老板可设置全公司每日Token额度' using errcode='42501'; end if;
+ if p_tokens is null or p_tokens not between 1000 and 10000000 then raise exception '请设置1000至10000000的每日安全额度'; end if;
+ perform pg_advisory_xact_lock(hashtextextended('crm-ai-budget',0));
+ update public.crm_ai_settings set daily_token_limit=p_tokens,updated_by=auth.uid(),updated_at=now() where id;
+end;
+$$;
+revoke all on function public.crm_ai_set_daily_tokens(integer) from public,anon,authenticated;
+grant execute on function public.crm_ai_set_daily_tokens(integer) to authenticated;
 
 commit;
