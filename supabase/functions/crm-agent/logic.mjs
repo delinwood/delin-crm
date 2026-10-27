@@ -54,3 +54,12 @@ export function validateResult(raw, sources, task) {
   return result;
 }
 export function fallbackAllowed(status) { return [403,429,502,503,504].includes(status); }
+
+export function qwenEndpoint(base='https://dashscope.aliyuncs.com/compatible-mode/v1') {
+ const u=new URL(base||'https://dashscope.aliyuncs.com/compatible-mode/v1'),h=u.hostname;
+ if(u.protocol!=='https:'||u.username||u.password||u.port||u.search||u.hash||u.pathname!=='/compatible-mode/v1'||!(h==='dashscope.aliyuncs.com'||(h.startsWith('ws-')&&h.endsWith('.cn-beijing.maas.aliyuncs.com'))))throw new Error('模型服务器地址未通过检查');
+ return u.href+'/chat/completions';
+}
+export function ensurePublicOnly(input) {
+ if(!['knowledge','training'].includes(input.task)||input.client_id||input.inbound_id)throw new Error('当前仅开放非机密知识问答与虚构培训，禁止提交真实邮件、客户档案、合同、报价或经营资料');
+}

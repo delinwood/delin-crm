@@ -1,5 +1,5 @@
 import { createClient } from 'npm:@supabase/supabase-js@2';
-import { TASKS, PRIVATE_TASKS, cleanText, safeURL, selectSources, qualificationScore, eligibleProviders, reservationSize, validateResult, fallbackAllowed } from './logic.mjs';
+import { TASKS, PRIVATE_TASKS, cleanText, safeURL, selectSources, qualificationScore, eligibleProviders, reservationSize, validateResult, fallbackAllowed, qwenEndpoint, ensurePublicOnly } from './logic.mjs';
 const env=(k:string)=>Deno.env.get(k)||'';
 const root=env('SUPABASE_URL'),anon=env('SUPABASE_ANON_KEY');
 const admin=createClient(root,env('SUPABASE_SERVICE_ROLE_KEY'),{auth:{persistSession:false}});
@@ -33,7 +33,7 @@ async function status(client:any,me:any){
 
  const limit=ck(await client.from('crm_ai_user_limits').select('daily_limit').eq('user_id',me.id).maybeSingle());
  const keys:Record<string,boolean>={qwen:!!env('QWEN_API_KEY'),gemini:!!env('GEMINI_API_KEY')};
- return{settings,providers:providers.map((p:any)=>({...p,credential_ready:keys[p.id],used_tokens:Number(usage.providers[p.id]||0)})),daily_limit:limit?.daily_limit??settings.daily_limit,today_used:usage.today_used};
+ return{settings,providers:providers.map((p:any)=>({...p,credential_ready:keys[p.id],used_tokens:Number(usage.providers[p.id]||0)})),daily_limit:limit?.daily_limit??settings.daily_limit,today_used:usage.today_used,today_tokens:usage.today_tokens};
 }
 async function company(client:any,me:any,id:string){
  if(!uid.test(id||''))throw new Error('请选择有效客户');
@@ -101,7 +101,7 @@ async function context(input:any,client:any,me:any){
 }
 async function callProvider(p:any,system:string,data:string){
  const qwen=p.id==='qwen';
- const url=qwen?'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions':'https://generativelanguage.googleapis.com/v1beta/models/'+encodeURIComponent(p.model)+':generateContent';
+ const url=qwen?qwenEndpoint(env('QWEN_BASE_URL')):'https://generativelanguage.googleapis.com/v1beta/models/'+encodeURIComponent(p.model)+':generateContent';
  const body=qwen?{model:p.model,messages:[{role:'system',content:system},{role:'user',content:data}],max_tokens:1600,temperature:0.3,enable_thinking:false,response_format:{type:'json_object'}}:
  {systemInstruction:{parts:[{text:system}]},contents:[{role:'user',parts:[{text:data}]}],generationConfig:{maxOutputTokens:1600,temperature:0.3,responseMimeType:'application/json'}};
  const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json',...(qwen?{Authorization:'Bearer '+env('QWEN_API_KEY')}:{'x-goog-api-key':env('GEMINI_API_KEY')})},body:JSON.stringify(body),signal:AbortSignal.timeout(30000)});
@@ -112,6 +112,7 @@ async function callProvider(p:any,system:string,data:string){
 }
 async function run(input:any,client:any,me:any){
  if(!TASKS.includes(input.task)||!uid.test(input.request_id||''))throw new Error('请求格式无效，请刷新后重试');
+ ensurePublicOnly(input);
  if(input.consent!==true)throw new Error('请确认本次数据提交范围');
  if(['knowledge','training'].includes(input.task)&&input.nonconfidential!==true)throw new Error('请确认输入不含敏感、机密或个人信息');
  const cfg=ck(await admin.from('crm_ai_settings').select('*').single());
