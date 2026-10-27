@@ -28,7 +28,8 @@
 
   // ---------------- LIST ----------------
   async function list() {
-    const admin = UI.ME.role === 'admin', C2 = UI.CLIENTS.filter(c => admin || c.owner_id === UI.ME.id); const [saved, canDelete] = await Promise.all([DB.listSavedFilters(), deleteAllowed()]);
+    const admin = UI.ME.role === 'admin', C2 = UI.CLIENTS.filter(c => admin || c.owner_id === UI.ME.id);
+    const [saved, canDelete] = await Promise.all([DB.listSavedFilters(), deleteAllowed()]);
     const states = uniq(C2.filter(c => !F.country || c.country === F.country).map(c => c.state)), tags = uniq(C2.flatMap(c => c.tags || []));
     const th = (k, l) => `<th class="sortable ${SORT.k === k ? 'on' : ''}" data-k="${k}">${l}${SORT.k === k ? (SORT.d > 0 ? ' ▲' : ' ▼') : ''}</th>`;
     UI.render(`
@@ -59,10 +60,28 @@
       <section class="card tbl"><table><thead><tr><th class="ck"><input type="checkbox" id="selall"></th>${th('company_name', '公司 Company')}<th>类型</th>${th('country', '地区 Location')}<th>产品 Products</th><th>客户标记</th>${th('priority', '优先级')}${th('status', '状态')}${admin ? th('owner_id', '业务员') : ''}${th('next_follow_up', '下次跟进')}${th('last_follow_up', '最近跟进')}<th>当地时间</th></tr></thead><tbody id="rows"></tbody></table></section>
       <div class="pager" id="pager"></div>`, 'list');
     draw();
-    let searchTimer; const bind=(id,k)=>{const el=$('#'+id);if(!el)return;const update=()=>{F[k]=el.value;PAGE=1;if(k==='country'){F.state='';const states=uniq(C2.filter(c=>!F.country||c.country===F.country).map(c=>c.state));$('#fstate').innerHTML='<option value="">州/省 State</option>'+states.map(v=>opt(v,v,'')).join('');}draw();};if(id==='fq')el.oninput=()=>{F[k]=el.value;PAGE=1;clearTimeout(searchTimer);searchTimer=setTimeout(()=>{if($('#rows'))draw();},160);};else el.onchange=update;};
+    let searchTimer;
+    const bind = (id, k) => { const el = $('#' + id); if (!el) return;
+      const update = () => {
+        F[k] = el.value; PAGE = 1;
+        if (k === 'country') {
+          F.state = '';
+          const states = uniq(C2.filter(c => !F.country || c.country === F.country).map(c => c.state));
+          $('#fstate').innerHTML = '<option value="">州/省 State</option>' + states.map(v => opt(v, v, '')).join('');
+        }
+        draw();
+      };
+      if (id === 'fq') el.oninput = () => { F[k] = el.value; PAGE = 1; clearTimeout(searchTimer); searchTimer = setTimeout(() => { if ($('#rows')) draw(); }, 160); };
+      else el.onchange = update;
+    };
     [['fq', 'q'], ['fcountry', 'country'], ['fstate', 'state'], ['fproduct', 'product'], ['fattention', 'attention'], ['fpriority', 'priority'], ['ftype', 'type'], ['fowner', 'owner'], ['fstatus', 'status'], ['fdue', 'due'], ['ftag', 'tag']].forEach(a => bind(...a));
     $('#fclear').onclick = () => { Object.keys(F).forEach(k => delete F[k]); PAGE = 1; list(); };
-    document.querySelectorAll('.kpi').forEach(b=>b.onclick=()=>{F.status=b.dataset.st;PAGE=1;document.querySelectorAll('.kpi').forEach(k=>k.classList.toggle('on',(F.status||'')===k.dataset.st));draw();}); document.querySelectorAll('th.sortable').forEach(t=>t.onclick=()=>{SORT={k:t.dataset.k,d:SORT.k===t.dataset.k?-SORT.d:1};sessionStorage.setItem('fcrm_sort',JSON.stringify(SORT));document.querySelectorAll('th.sortable').forEach(h=>{const label=h.textContent.replace(/[▲▼]/g,'').trim();h.classList.toggle('on',h.dataset.k===SORT.k);h.textContent=label+(h.dataset.k===SORT.k?(SORT.d>0?' ▲':' ▼'):'');});draw();});
+    $$('.kpi').forEach(b => b.onclick = () => { F.status = b.dataset.st; PAGE = 1; $$('.kpi').forEach(k => k.classList.toggle('on', (F.status || '') === k.dataset.st)); draw(); });
+    $$('th.sortable').forEach(t => t.onclick = () => {
+      SORT = { k: t.dataset.k, d: SORT.k === t.dataset.k ? -SORT.d : 1 }; sessionStorage.setItem('fcrm_sort', JSON.stringify(SORT));
+      $$('th.sortable').forEach(h => { const label = h.textContent.replace(/[▲▼]/g, '').trim(); h.classList.toggle('on', h.dataset.k === SORT.k); h.textContent = label + (h.dataset.k === SORT.k ? (SORT.d > 0 ? ' ▲' : ' ▼') : ''); });
+      draw();
+    });
     $('#savef').onclick = async () => { const n = prompt('筛选名称 Name this filter（如：美国A+未联系）'); if (n) { await DB.saveFilter(n, { ...F }); UI.toast('已保存'); list(); } };
     $$('[data-sf]').forEach(a => a.onclick = e => { e.preventDefault(); const s = saved.find(x => x.id === a.dataset.sf); Object.keys(F).forEach(k => delete F[k]); Object.assign(F, s.filters); PAGE = 1; list(); });
     $$('[data-sfdel]').forEach(b => b.onclick = async () => { await DB.deleteFilter(b.dataset.sfdel); list(); });
@@ -113,7 +132,7 @@
   const pageRows = () => UI.filtered().slice((PAGE - 1) * PER, PAGE * PER);
   function draw() {
     sessionStorage.setItem('fcrm_filters', JSON.stringify(F));
-    const all = UI.filtered(), rows = pageRows(), admin = UI.ME.role === 'admin', pages = Math.max(1, Math.ceil(all.length / PER));
+    const all = UI.filtered(), rows = all.slice((PAGE - 1) * PER, PAGE * PER), admin = UI.ME.role === 'admin', pages = Math.max(1, Math.ceil(all.length / PER));
     $('#cnt').innerHTML = `共 <b>${all.length}</b> 家客户 <small>${all.length} clients</small>`;
     $('#rows').innerHTML = rows.map(c => { const lt = UI.localTime(c); return `<tr data-id="${esc(c.id)}" class="${SEL.has(c.id) ? 'sel' : ''}">
       <td class="ck" data-l=""><input type="checkbox" data-sel="${esc(c.id)}" ${SEL.has(c.id) ? 'checked' : ''}></td>
