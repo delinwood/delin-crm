@@ -30,7 +30,7 @@ async function status(client:any,me:any){
  const usage=ck(await admin.rpc('crm_ai_usage',{p_user:me.id}));
  const today=new Date(Date.now()+28800000).toISOString().slice(0,10);
  const from=new Date(today+'T00:00:00+08:00').toISOString();
- 
+
  const limit=ck(await client.from('crm_ai_user_limits').select('daily_limit').eq('user_id',me.id).maybeSingle());
  const keys:Record<string,boolean>={qwen:!!env('QWEN_API_KEY'),gemini:!!env('GEMINI_API_KEY')};
  return{settings,providers:providers.map((p:any)=>({...p,credential_ready:keys[p.id],used_tokens:Number(usage.providers[p.id]||0)})),daily_limit:limit?.daily_limit??settings.daily_limit,today_used:usage.today_used};
