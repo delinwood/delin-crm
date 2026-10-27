@@ -37,24 +37,27 @@
 
   // ---------- shell ----------
   const NAV = [
-    ['home', '#/home', '🏠', '工作台', 'Today'], ['list', '#/list', '📇', '客户', 'Clients'], ['prospect', '#/prospect', '🔎', '找客户', 'Prospecting'],
-    ['templates', '#/templates', '✉️', '话术模板', 'Templates'], ['markets', '#/markets', '🌍', '目标市场', 'Markets'],
-    ['pool', '#/pool', '🌊', '公海', 'Pool'], ['dash', '#/dashboard', '📊', '团队看板', 'Dashboard', 'admin'], ['admin', '#/admin', '⚙️', '管理', 'Admin', 'admin'],
-    ['invalid', '#/invalid', '📁', '无效客户', 'Invalid'], ['email-reminders', '#/email-reminders', '✉️', '邮件提醒', 'Reminders'],
-    ['mail', '#/mail', '📨', '邮件中心', 'Email']
+    ['home','#/home','🏠','工作台','Today','','概览'],
+    ['list','#/list','📇','客户管理','Clients','','客户开发'],['pool','#/pool','🌊','公海客户','Pool','','客户开发'],['invalid','#/invalid','📁','无效客户','Invalid','','客户开发'],
+    ['prospect','#/prospect','🔎','找客户','Prospecting','','获客工具'],['markets','#/markets','🌍','目标市场','Markets','','获客工具'],['agent','#/agent','🤖','智能助手','Assistant','','获客工具'],
+    ['mail','#/mail','📨','邮件中心','Email','','沟通跟进'],['email-reminders','#/email-reminders','⏰','跟进提醒','Reminders','','沟通跟进'],['templates','#/templates','✉️','话术模板','Templates','','沟通跟进'],
+    ['business','#/business','📈','业务工作台','Business','','业务与培训'],['learning','#/learning','📚','学习中心','Learning','','业务与培训'],
+    ['dash','#/dashboard','📊','团队看板','Dashboard','admin','管理中心'],['admin','#/admin','⚙️','系统管理','Admin','admin','管理中心']
   ];
   UI.shell = (inner, active) => {
     const admin = UI.ME.role === 'admin', nav = NAV.filter(n => !n[5] || admin), od = UI.overdue(UI.CLIENTS.filter(c => c.owner_id === UI.ME.id)).length;
-    return `<header class="top"><a class="brand" href="#/home">${cfg.LOGO_URL ? `<img src="${esc(cfg.LOGO_URL)}" alt="">` : '<div class="logo">F</div>'}
-      <div><div class="bn">${esc(cfg.COMPANY_NAME_CN)}</div><div class="bs">${esc(cfg.COMPANY_NAME_EN)} · CRM</div></div></a>
-      <nav>${nav.map(n => `<a href="${n[1]}" class="${active === n[0] ? 'on' : ''}">${n[3]}${n[0] === 'home' && od ? `<b class="dot">${od}</b>` : ''} <small>${n[4]}</small></a>`).join('')}</nav>
-      <div class="me"><a href="#/me" class="mename">${esc(UI.ME.full_name)} <em>${admin ? '管理员 Admin' : '业务员 Sales'}</em></a><button class="ghost sm" id="logout">退出</button></div></header>
-      ${cfg.MODE === 'demo' ? '<div class="demo">演示模式 Demo — 数据仅保存在本浏览器 · <a href="#" id="resetDemo">重置演示数据</a></div>' : ''}
-      <main>${inner}</main>
-      <nav class="tabbar">${[nav[0], nav[1], nav[2], nav[3], admin ? NAV[6] : NAV[4]].map(n => `<a href="${n[1]}" class="${active === n[0] ? 'on' : ''}"><span>${n[2]}</span>${n[3]}${n[0] === 'home' && od ? `<b class="dot">${od}</b>` : ''}</a>`).join('')}</nav>`;
+    const groups = [...new Set(nav.map(n => n[6]))];
+    const links = groups.map(group => `<div class="side-group"><div class="side-label">${group}</div>${nav.filter(n => n[6] === group).map(n => `<a href="${n[1]}" class="side-link ${active === n[0] ? 'on' : ''}" ${active === n[0] ? 'aria-current="page"' : ''}><span class="side-icon">${n[2]}</span><span>${n[3]}</span>${n[0] === 'home' && od ? `<b class="dot">${od}</b>` : ''}</a>`).join('')}</div>`).join('');
+    const mobile = ['home','list','prospect','learning','agent'].map(id => nav.find(n => n[0] === id)).filter(Boolean);
+    return `<div class="app-layout"><aside class="app-sidebar"><a class="brand" href="#/home">${cfg.LOGO_URL ? `<img src="${esc(cfg.LOGO_URL)}" alt="">` : '<div class="logo">F</div>'}<div><div class="bn">${esc(cfg.COMPANY_NAME_CN)}</div><div class="bs">${esc(cfg.COMPANY_NAME_EN)} · CRM</div></div></a><div class="side-scroll">${links}</div><div class="side-account"><a href="#/me" class="account-link"><span class="avatar">${esc((UI.ME.full_name || '?').slice(0,1))}</span><span><b>${esc(UI.ME.full_name)}</b><small>${admin ? '管理员' : '业务员'}</small></span></a><button class="ghost sm" id="logout">退出</button></div></aside><button class="sidebar-shade" id="sidebarShade" aria-label="关闭导航"></button><section class="app-content"><header class="mobile-top"><button class="ghost sm mobile-menu" id="menuToggle" aria-expanded="false">☰ 导航</button><a class="brand" href="#/home"><div class="logo">F</div><div class="bn">${esc(cfg.COMPANY_NAME_CN)}</div></a><a href="#/me" class="mobile-user">${esc(UI.ME.full_name)}</a><button class="ghost sm mobile-logout" id="logoutMobile">退出</button></header>
+      ${cfg.MODE === 'demo' ? '<div class="demo">演示模式 Demo — 数据仅保存在本浏览器 · <a href="#" id="resetDemo">重置演示数据</a></div>' : ''}<main>${inner}</main></section><nav class="tabbar">${mobile.map(n => `<a href="${n[1]}" class="${active === n[0] ? 'on' : ''}"><span>${n[2]}</span>${n[3]}</a>`).join('')}</nav></div>`;
   };
   UI.bindShell = () => {
     $('#logout').onclick = async () => { await DB.logout(); UI.ME = null; UI.invalidateDirectory(); location.hash = '#/login'; route(); };
+    const menu = $('#menuToggle'), layout = $('.app-layout'), shade = $('#sidebarShade');
+    if (menu && layout) menu.onclick = () => { const open=layout.classList.toggle('menu-open'); menu.setAttribute('aria-expanded',String(open)); };
+    if (shade && layout) shade.onclick = () => { layout.classList.remove('menu-open'); menu?.setAttribute('aria-expanded','false'); };
+    const lm = $('#logoutMobile'); if (lm) lm.onclick = $('#logout').onclick;
     const r = $('#resetDemo'); if (r) r.onclick = e => { e.preventDefault(); if (confirm('重置所有演示数据？Reset demo data?')) { DB.reset(); route(); } };
   };
   UI.render = (inner, active) => { $('#app').innerHTML = UI.shell(inner, active); UI.bindShell(); window.scrollTo(0, 0); };

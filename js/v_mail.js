@@ -1,7 +1,7 @@
 (function () {
   const { esc, opt, $, $$ } = UI;
   const labels = { queued: '待发送', sending: '正在发送', sent: 'Gmail已接受', failed: '发送失败', unknown: '状态待核实', skipped: '已跳过', cancelled: '已取消', bounced: '已确认退信' };
-  let chosen = [], draftInput = null, approved = null, requestID = null, busy = false, refreshTimer = null;
+  let chosen = [], draftInput = null, approved = null, requestID = null, busy = false, refreshTimer = null, agentDraft = null;
   let selectedLimitUser = null;
   const limitLabel = value => value === 0 ? '不设系统每日上限' : `${value} 封/过去24小时`;
   const localDateTime = date => new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0,16);
@@ -21,7 +21,7 @@
     const bytes = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify(v))));
     return btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
   };
-  UI.mailCompose = ids => { chosen = [...new Set(ids)]; approved = null; draftInput = null; requestID = null; location.hash = '#/mail-compose'; };
+  UI.mailCompose = (ids, customDraft = null) => { chosen = [...new Set(ids)]; approved = null; draftInput = null; requestID = null; agentDraft = customDraft; location.hash = '#/mail-compose'; };
   async function compose() {
     if (chosen.length > 400) { UI.toast('单次最多400封，请减少勾选客户', 1); location.hash = '#/list'; return; }
     if (!chosen.length) { location.hash = '#/list'; UI.toast('请先在客户列表勾选客户'); return; }
@@ -42,6 +42,7 @@
       <label class="inl"><input type="checkbox" name="permission" required> 我已核实客户适合本次商务联系，并有适用的联系依据</label>
       <button class="primary" ${!account?.connected ? 'disabled' : ''}>生成并预览全部邮件</button></form></section><section id="mailPreview"></section>`, 'mail');
     const form = $('#mailDraft');
+    if (agentDraft) { form.template.value = '_custom'; form.subject.value = agentDraft.subject || ''; form.body.value = agentDraft.body || ''; $('#mailCustom').hidden = false; agentDraft = null; }
     const updateTiming = () => { $('#mailDelay').hidden = form.timing.value !== 'delay'; $('#mailDate').hidden = form.timing.value !== 'date'; $('#mailRepeat').hidden = !form.interval_days.value; form.max_sends.disabled = form.forever.checked; };
     form.timing.onchange = updateTiming; form.interval_days.onchange = updateTiming; form.forever.onchange = updateTiming;
     form.template.onchange = () => { $('#mailCustom').hidden = form.template.value !== '_custom'; approved = null; $('#mailPreview').innerHTML = ''; };

@@ -25,7 +25,7 @@
       if (this.db) return this.db;
       const raw = localStorage.getItem(KEY);
       this.db = raw ? JSON.parse(raw) : relDates(JSON.parse(JSON.stringify(window.DEMO_SEED)));
-      ['audit', 'saved_filters', 'quotes', 'samples', 'logs'].forEach(k => this.db[k] = this.db[k] || []);
+      ['audit', 'saved_filters', 'quotes', 'samples', 'logs', 'learning_materials', 'learning_progress'].forEach(k => this.db[k] = this.db[k] || []);
       if (!this.db.templates) this.db.templates = (window.DEFAULT_TEMPLATES || []).map(t => ({ ...t }));
       this.save(); return this.db;
     },
@@ -145,6 +145,12 @@
       this.audit(null, 'import', { count: n }); this.save(); return n;
     },
     async backup() { if (!this.admin()) throw new Error('仅管理员'); const db = this.load(); return { exported_at: nowISO(), mode: 'demo', users: db.users.map(u => this.pub(u)), clients: db.clients, follow_ups: db.logs, quotes: db.quotes, samples: db.samples, audit_log: db.audit, templates: db.templates }; },
+    async listLearningMaterials() { const db=this.load(), me=this.me(); return db.learning_materials.filter(x=>x.status==='published'||me.role==='admin').sort((a,b)=>(a.category||'').localeCompare(b.category||'')||(a.sort_order||0)-(b.sort_order||0)); },
+    async saveLearningMaterial(row) { if(!this.admin()) throw new Error('仅老板可管理学习资料'); const db=this.load(), now=nowISO(); if(row.id){const x=db.learning_materials.find(v=>v.id===row.id);if(!x)throw new Error('资料不存在');Object.assign(x,row,{updated_at:now});this.save();return x;} const x={...row,id:uid('lm'),created_by:this.me().id,created_at:now,updated_at:now};db.learning_materials.unshift(x);this.save();return x; },
+    async deleteLearningMaterial(id) { if(!this.admin()) throw new Error('仅老板可删除学习资料'); this.load().learning_materials=this.load().learning_materials.filter(x=>x.id!==id);this.save(); },
+    async learningFileUrl() { throw new Error('演示模式不支持私有文件上传；可先使用资料链接或切换正式 CRM'); },
+    async listLearningProgress() { const me=this.me();return this.load().learning_progress.filter(x=>me.role==='admin'||x.user_id===me.id).map(x=>({...x,user:this.load().users.find(u=>u.id===x.user_id)})); },
+    async markLearningComplete(materialId) { const db=this.load(),me=this.me();let p=db.learning_progress.find(x=>x.material_id===materialId&&x.user_id===me.id);if(!p){p={id:uid('lp'),material_id:materialId,user_id:me.id};db.learning_progress.push(p);}p.completed_at=nowISO();this.save();return p; },
     async fetchSite(url) {
       try { const r = await fetch('/api/fetch-site?url=' + encodeURIComponent(url)); if (r.ok) return await r.json(); } catch (e) {}
       return { website: url, offline: true };
@@ -210,6 +216,19 @@
     async importClients(rows) { let n = 0; for (let i = 0; i < rows.length; i += 500) { this.chk(await this.t('clients').insert(rows.slice(i, i + 500).map(r => ({ ...this.clean(r), allow_duplicate: true })))); n += Math.min(500, rows.length - i); } return n; },
     async backup() { const g = async t => { const out = []; for (let f = 0; ; f += 1000) { const r = this.chk(await this.t(t).select('*').range(f, f + 999)); out.push(...r); if (r.length < 1000) break; } return out; };
       return { exported_at: nowISO(), mode: 'supabase', users: await g('profiles'), clients: await g('clients'), follow_ups: await g('follow_ups'), quotes: await g('quotes'), samples: await g('samples'), audit_log: await g('audit_log'), templates: await g('templates') }; },
+    async listLearningMaterials() { let q=this.t('crm_learning_materials').select('*').order('category').order('sort_order').order('created_at',{ascending:false});return this.chk(await q); },
+    async saveLearningMaterial(row) {
+      if(!this.profile||this.profile.role!=='admin')throw new Error('仅老板可管理学习资料');
+      const file=row.file, materialId=row.id||crypto.randomUUID();let filePath=row.file_path||null;
+      if(file){if(file.size>20*1024*1024)throw new Error('单份资料最大20MB');const safe=file.name.replace(/[^\p{L}\p{N}._ -]/gu,'_').slice(0,120),path=`${materialId}/${crypto.randomUUID()}_${safe}`;const uploaded=await this.init().storage.from('crm-learning').upload(path,file,{contentType:file.type||'application/octet-stream',upsert:false});if(uploaded.error)throw new Error(uploaded.error.message);filePath=path;}
+      const data={title:row.title,description:row.description||'',category:row.category,required:!!row.required,status:row.status||'draft',sort_order:Number(row.sort_order||0),external_url:row.external_url||null,file_path:filePath,file_name:file?file.name:(row.file_name||null),file_size:file?file.size:(row.file_size||null)};
+      try {const saved=row.id?this.chk(await this.t('crm_learning_materials').update(data).eq('id',materialId).select().single()):this.chk(await this.t('crm_learning_materials').insert({...data,id:materialId,created_by:this.profile.id}).select().single());if(file&&row.file_path&&row.file_path!==filePath){const old=await this.init().storage.from('crm-learning').remove([row.file_path]);if(old.error)console.warn('旧学习附件未能清理',old.error.message);}return saved;}
+      catch(e){if(filePath&&file)await this.init().storage.from('crm-learning').remove([filePath]);throw e;}
+    },
+    async deleteLearningMaterial(id) { const row=this.chk(await this.t('crm_learning_materials').select('file_path').eq('id',id).maybeSingle());if(row?.file_path){const r=await this.init().storage.from('crm-learning').remove([row.file_path]);if(r.error)throw new Error(r.error.message);}this.chk(await this.t('crm_learning_materials').delete().eq('id',id)); },
+    async learningFileUrl(path) { const r=await this.init().storage.from('crm-learning').createSignedUrl(path,300);if(r.error)throw new Error(r.error.message);return r.data.signedUrl; },
+    async listLearningProgress() { const q=this.t('crm_learning_progress').select('*').order('completed_at',{ascending:false});return this.chk(await q); },
+    async markLearningComplete(materialId) { return this.chk(await this.t('crm_learning_progress').upsert({material_id:materialId,user_id:this.profile.id,completed_at:nowISO()},{onConflict:'material_id,user_id'}).select().single()); },
     async fetchSite(url) { return this.fn('fetch-site', { url }); },
     reset() {}
   };
