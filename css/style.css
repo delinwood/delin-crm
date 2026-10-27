@@ -182,3 +182,7 @@ table.mini td:first-child{white-space:nowrap}
 .attention-2{background:#e7f0ff;color:#1e4fa3}.attention-3{background:#eef1f5;color:#556}
 .email-reminder{margin-bottom:14px}.email-reminder a{font-weight:600}
 .top nav{overflow-x:auto;white-space:nowrap}
+
+/* Keep every module reachable in the mobile navigation drawer. */
+.sidebar-shade{display:none}.app-sidebar a[href="#/second-pool"]{height:38px;border-radius:8px;padding:0 10px;display:flex;align-items:center;gap:10px;margin:2px 0;color:#4b586a;font-size:13px;font-weight:550}.app-sidebar a[href="#/second-pool"]:before{content:"↩";width:22px;text-align:center;font-size:16px}.app-sidebar a[href="#/second-pool"] small{display:none}.app-sidebar a[href="#/second-pool"].on{background:#eaf7f5;color:#087c70;font-weight:700}
+@media(max-width:760px){.app-layout.menu-open .app-sidebar{display:flex;position:fixed;left:0;top:0;width:260px;height:100dvh;z-index:50;box-shadow:10px 0 30px #10223b26}.app-layout.menu-open .sidebar-shade{display:block;position:fixed;inset:0;background:#10223b66;z-index:45;border:0;border-radius:0}.mobile-top{gap:7px}.mobile-top .brand{flex:1;min-width:0}.mobile-top .bn{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.mobile-user{max-width:45px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.mobile-menu,.mobile-logout{font-size:10px;padding:5px 7px}}
