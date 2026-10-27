@@ -1,5 +1,5 @@
 import { createClient } from 'npm:@supabase/supabase-js@2';
-import { TASKS, PRIVATE_TASKS, cleanText, safeURL, selectSources, qualificationScore, eligibleProviders, reservationSize, validateResult, fallbackAllowed, qwenEndpoint, ensurePublicOnly } from './logic.mjs';
+import { TASKS, PRIVATE_TASKS, cleanText, safeURL, selectSources, qualificationScore, eligibleProviders, reservationSize, validateResult, fallbackAllowed, qwenEndpoint, ensureTaskScope } from './logic.mjs';
 const env=(k:string)=>Deno.env.get(k)||'';
 const root=env('SUPABASE_URL'),anon=env('SUPABASE_ANON_KEY');
 const admin=createClient(root,env('SUPABASE_SERVICE_ROLE_KEY'),{auth:{persistSession:false}});
@@ -112,12 +112,9 @@ async function callProvider(p:any,system:string,data:string){
 }
 async function run(input:any,client:any,me:any){
  if(!TASKS.includes(input.task)||!uid.test(input.request_id||''))throw new Error('请求格式无效，请刷新后重试');
- ensurePublicOnly(input);
- if(input.consent!==true)throw new Error('请确认本次数据提交范围');
- if(['knowledge','training'].includes(input.task)&&input.nonconfidential!==true)throw new Error('请确认输入不含敏感、机密或个人信息');
  const cfg=ck(await admin.from('crm_ai_settings').select('*').single());
  if(!cfg.enabled)throw new Error('AI尚未启用：等待免费账号、机密配置与数据范围确认');
- if(PRIVATE_TASKS.includes(input.task)&&!cfg.private_consent)throw new Error('内部业务资料处理尚未获老板批准');
+ ensureTaskScope(input,cfg);
  const built=await context(input,client,me),system=systems[input.task]+contract,data=JSON.stringify(built.payload),reserved=reservationSize(system,data);
  if(reserved>55000)throw new Error('本次资料过多，请缩小问题范围');
  const candidates=eligibleProviders(ck(await admin.from('crm_ai_providers').select('*')),input.task,input.provider,{qwen:!!env('QWEN_API_KEY'),gemini:!!env('GEMINI_API_KEY')});

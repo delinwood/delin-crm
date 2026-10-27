@@ -31,7 +31,7 @@ export function qualificationScore(data = {}, now = Date.now()) {
   return {score:details.reduce((n,d)=>n+d.earned,0),details,notice:'采购档案证据完整度分，不是进口量排名、信用评级或成交概率；AI不会把网页词语自动确认为采购事实。'};
 }
 export function eligibleProviders(providers, task, preferred, keys, now = Date.now()) {
-  return providers.filter(p=>p.enabled && p.free_only_verified && Date.parse(p.expires_at)>now && p.model && keys[p.id] && (!PRIVATE_TASKS.includes(task)||p.private_allowed))
+  return providers.filter(p=>p.enabled && p.free_only_verified && Date.parse(p.expires_at)>now && p.model && keys[p.id] && (!PRIVATE_TASKS.includes(task)||(p.id==='qwen'&&p.private_allowed)))
     .sort((a,b)=>(a.id===preferred?-1:b.id===preferred?1:0)||a.priority-b.priority);
 }
 export function reservationSize(system, payload, maxOutput=1600) {
@@ -60,6 +60,15 @@ export function qwenEndpoint(base='https://dashscope.aliyuncs.com/compatible-mod
  if(u.protocol!=='https:'||u.username||u.password||u.port||u.search||u.hash||u.pathname!=='/compatible-mode/v1'||!(h==='dashscope.aliyuncs.com'||(h.startsWith('ws-')&&h.endsWith('.cn-beijing.maas.aliyuncs.com'))))throw new Error('模型服务器地址未通过检查');
  return u.href+'/chat/completions';
 }
-export function ensurePublicOnly(input) {
- if(!['knowledge','training'].includes(input.task)||input.client_id||input.inbound_id)throw new Error('当前仅开放非机密知识问答与虚构培训，禁止提交真实邮件、客户档案、合同、报价或经营资料');
+export function ensureTaskScope(input, settings) {
+ if(!TASKS.includes(input.task))throw new Error('任务类型无效');
+ if(input.consent!==true)throw new Error('请确认本次数据提交范围');
+ if(PRIVATE_TASKS.includes(input.task)){
+  if(!settings?.private_consent)throw new Error('内部业务资料处理尚未获老板批准');
+ }else{
+  if(input.client_id||input.inbound_id)throw new Error('知识问答和虚构练习不能关联真实客户或邮件');
+  if(input.nonconfidential!==true)throw new Error('请确认输入不含敏感、机密或个人信息');
+ }
+ if(!['reply','research'].includes(input.task)&&(input.client_id||input.inbound_id))throw new Error('当前任务不能附带客户或邮件');
+ if(input.task==='research'&&input.inbound_id)throw new Error('公司核实不能附带邮件');
 }
