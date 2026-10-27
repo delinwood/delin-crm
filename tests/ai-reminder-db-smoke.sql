@@ -1,0 +1,56 @@
+-- All probes are rolled back, including temporary reminders and AI settings.
+do $probe$
+declare staff uuid;other_staff uuid;rid uuid;v integer;claimed integer;denied boolean;aid uuid;requestid uuid:=gen_random_uuid();
+begin
+ select id into staff from public.profiles where active and role<>'admin' order by id limit 1;
+ select id into other_staff from public.profiles where active and role<>'admin' and id<>staff order by id limit 1;
+ if staff is null or other_staff is null then raise exception 'Need two existing active staff for isolation checks'; end if;
+ begin
+  if public.crm_reminder_next('2026-01-31 15:00+08','months',1,'2026-02-01 00:00+08')<>'2026-02-28 15:00+08'::timestamptz then raise exception 'Monthly clamp failed'; end if;
+  if public.crm_reminder_next('2026-01-31 15:00+08','months',1,'2026-02-28 15:00+08')<>'2026-03-31 15:00+08'::timestamptz then raise exception 'Monthly anchor drift'; end if;
+  if public.crm_reminder_next('2024-02-29 15:00+08','years',1,'2025-03-01 00:00+08')<>'2026-02-28 15:00+08'::timestamptz then raise exception 'Leap year recurrence failed'; end if;
+  if public.crm_reminder_next(now(),'once',1,now()) is not null then raise exception 'One-off repeated'; end if;
+  perform set_config('request.jwt.claim.sub',staff::text,true);
+  set local role authenticated;
+  select id,version into rid,v from public.crm_save_reminder(jsonb_build_object('title','回滚提醒验证','content','测试','start_at',now()-interval '1 minute','frequency','once','every_n',1));
+  select count(*) into claimed from public.crm_claim_reminders() where id=rid;
+  if claimed<>1 then raise exception 'Due reminder not claimed'; end if;
+  select count(*) into claimed from public.crm_claim_reminders() where id=rid;
+  if claimed<>0 then raise exception 'Duplicate reminder delivery lease'; end if;
+  denied:=false;
+  begin perform public.crm_ai_save_settings(true,true,20,'[]','[]');exception when insufficient_privilege then denied:=true;end;
+  if not denied then raise exception 'Staff changed AI settings'; end if;
+  reset role;
+  perform set_config('request.jwt.claim.sub',other_staff::text,true);
+  set local role authenticated;
+  if exists(select 1 from public.crm_reminders where id=rid) then raise exception 'Staff reminder isolation failed'; end if;
+  denied:=false;
+  begin perform public.crm_reminder_action(rid,v,'done');exception when insufficient_privilege then denied:=true;end;
+  if not denied then raise exception 'Staff changed other reminder'; end if;
+  reset role;
+  perform set_config('request.jwt.claim.sub',staff::text,true);
+  set local role authenticated;
+  perform public.crm_reminder_action(rid,v,'done');
+  if not exists(select 1 from public.crm_reminders where id=rid and status='completed') then raise exception 'One-off completion failed'; end if;
+  reset role;
+  update public.crm_ai_settings set enabled=true,private_consent=true,daily_limit=1;
+  update public.crm_ai_providers set enabled=true,free_only_verified=true,expires_at=now()+interval '1 day',token_budget=500,model='qwen-plus',private_allowed=true where id='qwen';
+  aid:=gen_random_uuid();
+  perform public.crm_ai_reserve(aid,requestid,staff,'qwen','knowledge',null,400,'仅回滚测试');
+  denied:=false;
+  begin perform public.crm_ai_reserve(gen_random_uuid(),gen_random_uuid(),staff,'qwen','knowledge',null,200,'超过日限额');exception when others then denied:=true;end;
+  if not denied then raise exception 'Daily AI limit failed'; end if;
+  update public.crm_ai_settings set daily_limit=200;
+  denied:=false;
+  begin perform public.crm_ai_reserve(gen_random_uuid(),gen_random_uuid(),staff,'qwen','knowledge',null,200,'超过总免费安全额度');exception when others then denied:=true;end;
+  if not denied then raise exception 'AI reservation budget failed'; end if;
+  update public.crm_ai_providers set free_only_verified=false where id='qwen';
+  denied:=false;
+  begin perform public.crm_ai_reserve(gen_random_uuid(),gen_random_uuid(),staff,'qwen','knowledge',null,10,'未验证免费保护');exception when others then denied:=true;end;
+  if not denied then raise exception 'AI free guard failed'; end if;
+  raise exception using errcode='ZP001',message='Successful probe rollback';
+ exception when sqlstate 'ZP001' then null;
+ end;
+end;
+$probe$;
+select 'Passed: recurrence, reminder ownership, atomic delivery, completion, staff AI permissions, daily limit and free budget guard. All probe changes rolled back.' as verification;
