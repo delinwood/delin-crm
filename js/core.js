@@ -71,9 +71,9 @@
     $('#lf').onsubmit = async e => { e.preventDefault(); const f = e.target;
       try { UI.ME = await DB.login(f.u.value, f.p.value); UI.invalidateDirectory(); location.hash = '#/home'; route(); } catch (err) { $('#lerr').textContent = err.message; } };
   }
-    // Reuse the clients and users snapshot during rapid navigation.  const DIRECTORY_TTL = 30000;  let directoryLoadedAt = 0, directoryRequest = null, directoryEpoch = 0;  UI.invalidateDirectory = () => { directoryLoadedAt = 0; directoryEpoch++; directoryRequest = null; };  UI.refresh = async ({ force = true } = {}) => {    if (!force && directoryLoadedAt && Date.now() - directoryLoadedAt < DIRECTORY_TTL) return;    if (directoryRequest) {      if (!force || directoryRequest.force) return directoryRequest.promise;      try { await directoryRequest.promise; } catch (_) { /* Retry below after failure. */ }    }    const epoch = directoryEpoch, request = { force, promise: null };    request.promise = Promise.all([DB.listUsers(), DB.listClients()]).then(([users, clients]) => {      if (epoch === directoryEpoch) { UI.USERS = users; UI.CLIENTS = clients; directoryLoadedAt = Date.now(); }    }).finally(() => { if (directoryRequest === request) directoryRequest = null; });    directoryRequest = request;    return request.promise;  };
+  const DIRECTORY_TTL=30000; let directoryLoadedAt=0,directoryRequest=null,directoryEpoch=0; UI.invalidateDirectory=()=>{directoryLoadedAt=0;directoryEpoch++;directoryRequest=null;}; UI.refresh=async({force=true}={})=>{if(!force&&directoryLoadedAt&&Date.now()-directoryLoadedAt<DIRECTORY_TTL)return; if(directoryRequest)return directoryRequest; const epoch=directoryEpoch; directoryRequest=Promise.all([DB.listUsers(),DB.listClients()]).then(([users,clients])=>{if(epoch===directoryEpoch){UI.USERS=users;UI.CLIENTS=clients;directoryLoadedAt=Date.now();}}).finally(()=>{directoryRequest=null;}); return directoryRequest;};
 
-  async function route() {
+  let navigation=0; async function route() { const currentNavigation=++navigation;
     try {
       if (!UI.ME) UI.ME = await DB.currentUser();
       if (!UI.ME) return viewLogin();
