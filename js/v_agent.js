@@ -68,7 +68,7 @@
 
   async function render() {
     const clients = visibleClients(), qRows = await getQualification(), qMap = new Map(qRows.map(r=>[r.client_id,r]));
-    UI.render(`<div class="pagehead"><h1>CRM 智能助手 <small>Assistant</small></h1><span class="muted small">第一版 · 基于 CRM 资料的规则助手</span></div>
+    UI.render(`<div class="pagehead"><h1>CRM 规则助手 <small>Assistant</small></h1><a class="btn primary" href="#/ai">进入AI工作台</a><span class="muted small">第一版 · 基于 CRM 资料的规则助手</span></div>
       <section class="card pad"><h2>用自然语言找客户</h2><form id="agentSearch"><label>描述目标客户<input name="query" type="search" placeholder="例如：找沙特做 SPC 地板批发、有仓库、未联系的客户"></label><button class="primary">搜索 CRM 客户</button></form><p class="muted small">只检索你有权限查看的 CRM 客户；当前支持国家、产品、批发/仓库字段和跟进状态组合。仓库条件仅匹配已标记确认的采购档案，不会把未知资料当事实。</p><div id="agentResults"></div></section>
       <section class="card pad"><div class="pagehead"><h2>待核实客户清单</h2><span class="muted small">按当前可见客户和已填写的采购档案生成</span></div><div id="agentReviewQueue"></div></section>
       <section class="card pad"><h2>使用说明</h2><p>助手当前不调用外部 AI 或搜索服务，不额外产生模型/API费用。搜索和建议来自 CRM 已有资料；公开资料补充请使用“找客户 / 自动补资料”，结果仍需业务员核实。邮件只生成草稿；客户资料变更、发送邮件和商机推进都由你确认。</p></section>`,'agent');

@@ -186,3 +186,19 @@ table.mini td:first-child{white-space:nowrap}
 /* Keep every module reachable in the mobile navigation drawer. */
 .sidebar-shade{display:none}.app-sidebar a[href="#/second-pool"]{height:38px;border-radius:8px;padding:0 10px;display:flex;align-items:center;gap:10px;margin:2px 0;color:#4b586a;font-size:13px;font-weight:550}.app-sidebar a[href="#/second-pool"]:before{content:"↩";width:22px;text-align:center;font-size:16px}.app-sidebar a[href="#/second-pool"] small{display:none}.app-sidebar a[href="#/second-pool"].on{background:#eaf7f5;color:#087c70;font-weight:700}
 @media(max-width:760px){.app-layout.menu-open .app-sidebar{display:flex;position:fixed;left:0;top:0;width:260px;height:100dvh;z-index:50;box-shadow:10px 0 30px #10223b26}.app-layout.menu-open .sidebar-shade{display:block;position:fixed;inset:0;background:#10223b66;z-index:45;border:0;border-radius:0}.mobile-top{gap:7px}.mobile-top .brand{flex:1;min-width:0}.mobile-top .bn{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.mobile-user{max-width:45px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.mobile-menu,.mobile-logout{font-size:10px;padding:5px 7px}}
+
+/* Personal schedule and AI workspaces */
+.reminder-hero,.ai-hero{background:linear-gradient(120deg,#e7f2ff,#f7fbff);border:1px solid #d5e4f4;border-radius:18px;padding:28px;margin-bottom:22px}
+.reminder-eyebrow{font-size:12px;letter-spacing:1.3px;color:#336c9d;font-weight:700}
+.reminder-hero h1,.ai-hero h1{margin:8px 0;font-size:30px}
+.reminder-row{display:flex;gap:20px;align-items:center;justify-content:space-between;border-top:1px solid #e6edf5;padding:18px 4px}
+.reminder-row h3{margin:0 0 8px}.reminder-row p{margin:5px 0}.reminder-row.is-due{border-left:3px solid #e9a93c;padding-left:14px;background:#fffaf0}
+.reminder-popups{position:fixed;z-index:2000;right:22px;bottom:22px;width:min(440px,calc(100vw - 32px));max-height:78vh;overflow:auto;display:grid;gap:12px}
+.reminder-popup{padding:22px;background:#fff;border:2px solid #e9a93c;border-radius:16px;box-shadow:0 12px 45px #182d4940}
+.reminder-popup h2{font-size:20px;margin:10px 0}.reminder-popup pre{white-space:pre-wrap;font-family:inherit;max-height:160px;overflow:auto}.reminder-popup a{font-size:12px}
+.ai-hero{display:flex;justify-content:space-between;gap:24px;align-items:center}.ai-usage{display:grid;gap:10px;min-width:180px;font-size:14px}
+.ai-tabs{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:20px}.ai-tabs a{padding:10px 15px;border:1px solid #dae5ef;border-radius:10px;background:#fff;color:#3e5570;font-size:14px;text-decoration:none}.ai-tabs a.on{background:#1d5e98;border-color:#1d5e98;color:#fff}
+.ai-answer{white-space:pre-wrap;overflow-wrap:anywhere;font:inherit;line-height:1.85}.ai-generated-label{font-size:12px;color:#54708c}.ai-sources{padding-left:20px}.ai-sources li{margin:12px 0}.learning-ai-fields{border:1px solid #dce5f0;border-radius:10px;padding:14px;margin:12px 0}
+#aiSettings fieldset{border:1px solid #dce5f0;border-radius:10px;padding:16px;margin:18px 0}#aiSettings legend{font-weight:700}
+.side-link[href="#/reminders"]{border:1px solid #d6e5f4;background:#eef6ff;color:#265d89;margin-bottom:8px;font-weight:700}
+@media(max-width:760px){.ai-hero{display:block}.ai-usage{margin-top:18px}.reminder-row{display:block}.reminder-row>.actions{margin-top:12px}.reminder-popups{bottom:80px;right:16px}.reminder-hero,.ai-hero{padding:20px}.ai-tabs a{flex:1 0 40%;text-align:center}}
