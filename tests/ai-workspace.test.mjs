@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {qualificationScore,eligibleProviders,reservationSize,validateResult,selectSources,fallbackAllowed} from '../supabase/functions/crm-agent/logic.mjs';
+import {qualificationScore,eligibleProviders,reservationSize,validateResult,selectSources,fallbackAllowed,qwenEndpoint,ensurePublicOnly} from '../supabase/functions/crm-agent/logic.mjs';
 const now=Date.parse('2026-10-27T00:00:00Z');
 test('free fallback never routes private mail to Gemini or expired/unprotected providers',()=>{
  const base={enabled:true,free_only_verified:true,expires_at:'2026-12-01',model:'qwen-plus',priority:1};
@@ -27,4 +27,15 @@ test('source selection and reservation keep Chinese context within hard request 
  assert.equal(selected[0].id,'b');assert.equal(selected.reduce((n,s)=>n+s.text.length,0),5000);
  assert.equal(reservationSize('中','文',1600),2118);
  assert.equal(fallbackAllowed(401),false);assert.equal(fallbackAllowed(429),true);
+});
+
+test('confidential workspaces are blocked before context retrieval or model submission',()=>{
+ for(const task of ['reply','research','daily','business'])assert.throws(()=>ensurePublicOnly({task}));
+ assert.throws(()=>ensurePublicOnly({task:'knowledge',client_id:'real-customer'}));
+ assert.throws(()=>ensurePublicOnly({task:'training',inbound_id:'real-email'}));
+ assert.doesNotThrow(()=>ensurePublicOnly({task:'training'}));
+});
+test('model destination stays on the approved Alibaba workspace, without credentials or redirects',()=>{
+ assert.equal(qwenEndpoint('https://ws-example.cn-beijing.maas.aliyuncs.com/compatible-mode/v1'),'https://ws-example.cn-beijing.maas.aliyuncs.com/compatible-mode/v1/chat/completions');
+ for(const url of ['http://dashscope.aliyuncs.com/compatible-mode/v1','https://evil.example/compatible-mode/v1','https://user:pass@dashscope.aliyuncs.com/compatible-mode/v1','https://dashscope.aliyuncs.com/compatible-mode/v1?x=y'])assert.throws(()=>qwenEndpoint(url));
 });

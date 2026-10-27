@@ -48,6 +48,12 @@ begin
   denied:=false;
   begin perform public.crm_ai_reserve(gen_random_uuid(),gen_random_uuid(),staff,'qwen','knowledge',null,10,'未验证免费保护');exception when others then denied:=true;end;
   if not denied then raise exception 'AI free guard failed'; end if;
+  update public.crm_ai_settings set daily_limit=0,daily_token_limit=1000;
+  update public.crm_ai_providers set free_only_verified=true,token_budget=10000 where id='qwen';
+  perform public.crm_ai_reserve(gen_random_uuid(),gen_random_uuid(),staff,'qwen','knowledge',null,100,'每日不限次数验证');
+  denied:=false;
+  begin perform public.crm_ai_reserve(gen_random_uuid(),gen_random_uuid(),staff,'qwen','knowledge',null,600,'超过全公司每日Token额度');exception when others then denied:=true;end;
+  if not denied then raise exception 'Global daily token ceiling failed'; end if;
   raise exception using errcode='ZP001',message='Successful probe rollback';
  exception when sqlstate 'ZP001' then null;
  end;
