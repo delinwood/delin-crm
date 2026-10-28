@@ -84,7 +84,7 @@ async function context(input:any,client:any,me:any){
   }
  }
  if(task==='daily'){
-  const clientsQuery=client.from('clients').select('id,company_name,status,next_follow_up',{count:'exact'}).eq('owner_id',me.id).not('status','in',['无效','成交']).lte('next_follow_up',payload.today).order('next_follow_up').limit(20);
+  const clientsQuery=client.from('clients').select('id,company_name,status,next_follow_up',{count:'exact'}).eq('owner_id',me.id).neq('status','无效').neq('status','成交').lte('next_follow_up',payload.today).order('next_follow_up').limit(20);
   const [dueResult,remResult,mailResult]=await Promise.all([
    clientsQuery,client.from('crm_reminders').select('title,next_at,content').eq('status','active').lte('next_at',new Date(Date.now()+86400000).toISOString()).order('next_at').limit(15),
    client.from('crm_mail_inbound').select('id,client_id,kind,subject,received_at').eq('kind','reply').gte('received_at',new Date(Date.now()-7*86400000).toISOString()).order('received_at',{ascending:false}).limit(10)]);
