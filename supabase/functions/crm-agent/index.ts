@@ -49,7 +49,7 @@ async function knowledge(client:any,question:string){
  return selectSources(question,rows.map((r:any)=>({id:'K-'+r.id,title:r.title,text:r.ai_text,date:r.updated_at,kind:'company_material',material_id:r.id})));
 }
 async function context(input:any,client:any,me:any){
- const task=input.task,question=cleanText(input.question,2000).trim();if(!question)throw new Error('请填写问题或任务要求');
+ const task=input.task,question=cleanText(input.question,8001).trim();if(!question)throw new Error('请填写问题或任务要求');if(question.length>8000)throw new Error('本次内容较长，请分段提交，避免遗漏资料');
  const sources:any[]=[],payload:any={question,today:new Date(Date.now()+28800000).toISOString().slice(0,10)};
  let c:any=null,score:any=null;
  if(['knowledge','training','reply'].includes(task))sources.push(...await knowledge(client,question));
@@ -60,7 +60,7 @@ async function context(input:any,client:any,me:any){
   if(history.length!==new Set(ids).size)throw new Error('部分对话资料权限已变化或记录不可用，请开始新对话');
   for(const r of history){
    refs.push(...(r.related_client_ids||[]));
-   messages.push({role:'user',content:cleanText(r.question,2000)});
+   messages.push({role:'user',content:cleanText(r.question,8000)});
    if(Array.isArray(r.result?.tool_messages))messages.push(...r.result.tool_messages);
    else messages.push({role:'assistant',content:cleanText(r.result?.answer,6000)});
   }
@@ -117,27 +117,27 @@ async function context(input:any,client:any,me:any){
 async function callProvider(p:any,system:string,data:string,chat:any=null){
  const qwen=p.id==='qwen';
  const url=qwen?qwenEndpoint(env('QWEN_BASE_URL')):'https://generativelanguage.googleapis.com/v1beta/models/'+encodeURIComponent(p.model)+':generateContent';
- const body=qwen?{model:p.model,messages:[{role:'system',content:system},...(chat?.messages||[]),{role:'user',content:data}],max_tokens:1600,temperature:0.3,enable_thinking:false,...(chat?{tools:chatTools,tool_choice:chat.allowTools?'auto':'none',parallel_tool_calls:false}:{response_format:{type:'json_object'}})}:
+ const body=qwen?{model:p.model,messages:[{role:'system',content:system},...(chat?.messages||[]),{role:'user',content:data}],max_tokens:chat?4096:1600,temperature:0.3,enable_thinking:false,...(chat?{tools:chatTools,tool_choice:chat.allowTools?'auto':'none',parallel_tool_calls:false}:{response_format:{type:'json_object'}})}:
  {systemInstruction:{parts:[{text:system}]},contents:[{role:'user',parts:[{text:data}]}],generationConfig:{maxOutputTokens:1600,temperature:0.3,responseMimeType:'application/json'}};
  const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json',...(qwen?{Authorization:'Bearer '+env('QWEN_API_KEY')}:{'x-goog-api-key':env('GEMINI_API_KEY')})},body:JSON.stringify(body),signal:AbortSignal.timeout(30000)});
  const json=await r.json().catch(()=>null);
  if(!r.ok)return{ok:false,status:r.status,code:String(json?.error?.code||json?.code||'').slice(0,100)};
  const text=qwen?json?.choices?.[0]?.message?.content:json?.candidates?.[0]?.content?.parts?.filter((v:any)=>!v.thought).map((v:any)=>v.text||'').join('');
- return{ok:true,text:typeof text==='string'?text:'',tool_calls:chat?json?.choices?.[0]?.message?.tool_calls:null,tokens:qwen?json?.usage?.total_tokens:json?.usageMetadata?.totalTokenCount};
+ return{ok:true,text:typeof text==='string'?text:'',tool_calls:chat?json?.choices?.[0]?.message?.tool_calls:null,truncated:json?.choices?.[0]?.finish_reason==='length',tokens:qwen?json?.usage?.total_tokens:json?.usageMetadata?.totalTokenCount};
 }
 async function run(input:any,client:any,me:any){
  if(!TASKS.includes(input.task)||!uid.test(input.request_id||''))throw new Error('请求格式无效，请刷新后重试');
  const cfg=ck(await admin.from('crm_ai_settings').select('*').single());
  if(!cfg.enabled)throw new Error('AI尚未启用：等待免费账号、机密配置与数据范围确认');
  ensureTaskScope(input,cfg);
- const built=await context(input,client,me),isChat=input.task==='chat',system=systems[input.task]+(isChat?'':contract),data=JSON.stringify(built.payload),reserved=reservationSize(system+(isChat?JSON.stringify(chatTools):''),data+JSON.stringify(built.messages));
+ const built=await context(input,client,me),isChat=input.task==='chat',system=systems[input.task]+(isChat?'':contract),data=JSON.stringify(built.payload),reserved=reservationSize(system+(isChat?JSON.stringify(chatTools):''),data+JSON.stringify(built.messages),isChat?4096:1600);
  if(reserved>55000)throw new Error('本次资料过多，请缩小问题范围');
  const candidates=eligibleProviders(ck(await admin.from('crm_ai_providers').select('*')),input.task,input.provider,{qwen:!!env('QWEN_API_KEY'),gemini:!!env('GEMINI_API_KEY')});
  const providers=input.provider&&input.fallback!==true?candidates.filter((p:any)=>p.id===input.provider):candidates;
  if(!providers.length)throw new Error('没有适合此数据范围且免费额度有效的模型，不会启用付费后备');
  for(const p of providers){
   const attempt=crypto.randomUUID();
-  const reservation=await admin.rpc('crm_ai_reserve',{p_id:attempt,p_request:input.request_id,p_user:me.id,p_provider:p.id,p_task:input.task,p_client:built.client?.id||null,p_tokens:reserved,p_question:cleanText(input.question,2000)});
+  const reservation=await admin.rpc('crm_ai_reserve',{p_id:attempt,p_request:input.request_id,p_user:me.id,p_provider:p.id,p_task:input.task,p_client:built.client?.id||null,p_tokens:reserved,p_question:cleanText(input.question,8000)});
   if(reservation.error){if(/免费|模型/.test(reservation.error.message))continue;throw new Error(reservation.error.message);}
   let response:any;
   try{response=await callProvider(p,system,data,isChat?{messages:built.messages,allowTools:input.continue_tools!==false}:null);}
@@ -184,7 +184,7 @@ async function run(input:any,client:any,me:any){
    if(isChat&&built.refs.length&&!ck(await client.rpc('crm_ai_can_access_clients',{p_ids:[...new Set(built.refs)]})))throw new Error('对话客户归属已变化');
    const latest=ck(await client.from('crm_ai_settings').select('enabled,private_consent').single());if(!latest.enabled||(PRIVATE_TASKS.includes(input.task)&&!latest.private_consent))throw new Error('AI授权范围已变化');
   }catch{await admin.from('crm_ai_requests').update({status:'failed',charged_tokens:charged,actual_tokens:actual,error:'资料权限已变化，已丢弃输出',finished_at:new Date().toISOString()}).eq('id',attempt);throw new Error('资料权限已变化，输出未保存');}
-  result.score=built.score;result.coverage=built.payload.coverage||'';
+  result.score=built.score;result.coverage=[built.payload.coverage,response.truncated?'本次回答达到模型输出长度，可继续追问“接着说”。':''].filter(Boolean).join(' ');
   if(actual&&actual>reserved)await admin.from('crm_ai_providers').update({enabled:false}).eq('id',p.id);
   ck(await admin.from('crm_ai_requests').update({status:'completed',charged_tokens:charged,actual_tokens:actual,result,finished_at:new Date().toISOString(),...(isChat?{related_client_ids:[...new Set(built.refs)]}:{})}).eq('id',attempt));
   return{id:attempt,client_id:built.client?.id||null,provider:p.id,model:p.model,tokens:actual,result};
@@ -195,8 +195,8 @@ Deno.serve(async(req:Request)=>{
  if(req.method==='OPTIONS')return new Response('ok',{headers:cors});if(req.method!=='POST')return respond({error:'Method not allowed'},405);
  if(req.headers.get('origin')&&req.headers.get('origin')!==siteOrigin)return respond({error:'来源不允许'},403);
  try{
-  if(Number(req.headers.get('content-length')||0)>30000)return respond({error:'请求过大'},413);
-  const raw=await req.text();if(raw.length>30000)return respond({error:'请求过大'},413);
+  if(Number(req.headers.get('content-length')||0)>100000)return respond({error:'请求过大'},413);
+  const raw=await req.text();if(raw.length>100000)return respond({error:'请求过大'},413);
   const input=JSON.parse(raw),{client,me}=await auth(req);
   if(input.action==='status')return respond(await status(client,me));
   if(input.action==='run')return respond(await run(input,client,me));
