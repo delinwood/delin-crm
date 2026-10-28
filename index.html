@@ -7,7 +7,7 @@
 <meta name="robots" content="noindex,nofollow">
 <meta name="theme-color" content="#14284b">
 <link rel="icon" href="favicon.ico">
-<link rel="stylesheet" href="css/style.css">
+<link rel="stylesheet" href="css/style.css?v=20261028-chat">
 </head>
 <body>
 <div id="app"><div class="loading">加载中 Loading…</div></div>
@@ -20,7 +20,7 @@
     var s = [];
     if (CRM_CONFIG.MODE === 'supabase') s.push('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js');
     else s.push('js/seed.js');
-    s.push('js/markets.js', 'js/templates.js', 'js/data.js', 'js/core.js', 'js/followup.js', 'js/mail-merge.js', 'js/v_clients.js', 'js/v_home.js', 'js/v_prospect.js', 'js/v_tools.js', 'js/v_mail.js', 'js/v_pool.js', 'js/v_business.js', 'js/v_recovery.js', 'js/v_research.js', 'js/v_inbound.js', 'js/v_discovery.js', 'js/v_agent.js', 'js/v_learning.js', 'js/v_ai.js?v=20261027-business-consent', 'js/v_reminders.js');
+    s.push('js/markets.js', 'js/templates.js', 'js/data.js', 'js/core.js', 'js/followup.js', 'js/mail-merge.js', 'js/v_clients.js', 'js/v_home.js', 'js/v_prospect.js', 'js/v_tools.js', 'js/v_mail.js', 'js/v_pool.js', 'js/v_business.js', 'js/v_recovery.js', 'js/v_research.js', 'js/v_inbound.js', 'js/v_discovery.js', 'js/v_agent.js', 'js/v_learning.js', 'js/v_ai.js?v=20261028-chat', 'js/v_reminders.js');
     // Download scripts concurrently while preserving their dependency order.
     var remaining = s.length;
     s.forEach(function (src) {
