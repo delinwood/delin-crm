@@ -1,6 +1,6 @@
 // Shared pure logic; no network, credentials, or database access.
-export const TASKS = ['knowledge','reply','research','training','daily','business'];
-export const PRIVATE_TASKS = ['reply','research','daily','business'];
+export const TASKS = ['chat','knowledge','reply','research','training','daily','business'];
+export const PRIVATE_TASKS = ['chat','reply','research','daily','business'];
 export const cleanText = (v, max = 2000) => String(v ?? '').replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, '').slice(0, max);
 export function safeURL(value) {
   try { const u = new URL(value); return ['https:','http:'].includes(u.protocol) && !u.username && !u.password ? u.href : null; } catch { return null; }
@@ -50,7 +50,7 @@ export function validateResult(raw, sources, task) {
       throw new Error('邮件草稿不完整，本次未发送任何邮件');
     result.subject=cleanText(r.subject,250); result.body=cleanText(r.body,20000);
   }
-  if((task==='knowledge'||task==='research')&&!cited.length) result.answer='资料依据不足，以下内容仅为待核实建议，不能视为公司承诺或采购事实。\n\n'+result.answer;
+  if(task==='research'&&!cited.length) result.answer='资料依据不足，以下内容仅为待核实建议，不能视为公司承诺或采购事实。\n\n'+result.answer;
   return result;
 }
 export function fallbackAllowed(status) { return [403,429,502,503,504].includes(status); }
@@ -69,6 +69,7 @@ export function ensureTaskScope(input, settings) {
   if(input.client_id||input.inbound_id)throw new Error('知识问答和虚构练习不能关联真实客户或邮件');
   if(input.nonconfidential!==true)throw new Error('请确认输入不含敏感、机密或个人信息');
  }
- if(!['reply','research'].includes(input.task)&&(input.client_id||input.inbound_id))throw new Error('当前任务不能附带客户或邮件');
+ if(!['chat','reply','research'].includes(input.task)&&(input.client_id||input.inbound_id))throw new Error('当前任务不能附带客户或邮件');
+ if(input.task==='chat'&&input.inbound_id)throw new Error('请在邮件理解入口选择关联来信');
  if(input.task==='research'&&input.inbound_id)throw new Error('公司核实不能附带邮件');
 }
