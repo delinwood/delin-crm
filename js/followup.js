@@ -40,12 +40,13 @@
     DB.save(); return Object.values(db.client_tracking);
   };
   DB.listClients = async () => {
-    const clients = await listClients(); let flags = [];
+    const [clients,flags]=await Promise.all([listClients(),(async()=>{let flags=[];
     if (DB.mode === 'demo') flags = demoTracking();
     else for (let from = 0; ; from += 1000) {
       const rows = await optionalRows(DB.t('client_tracking').select('*').order('client_id').range(from, from + 999));
       flags.push(...rows); if (rows.length < 1000) break;
     }
+    return flags;})()]);
     tracking = new Map(flags.map(t => [t.client_id, t]));
     return clients.map(c => ({ ...c, ...(tracking.get(c.id) || {}), id: c.id }));
   };

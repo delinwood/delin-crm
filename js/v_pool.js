@@ -11,8 +11,7 @@
     }
   };
   DB.listClients = async () => {
-    const clients = await originalList();
-    const rows = DB.mode === 'demo' ? Object.values(DB.load().pool_metadata || {}) : await all('crm_pool_metadata');
+    const [clients,rows]=await Promise.all([originalList(),DB.mode==='demo'?Promise.resolve(Object.values(DB.load().pool_metadata||{})):all('crm_pool_metadata')]);
     metadata = new Map(rows.map(x => [x.client_id,x]));
     return clients.map(c => ({...c,...(metadata.get(c.id)||{}),id:c.id}));
   };

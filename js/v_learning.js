@@ -55,4 +55,25 @@
     $$('[data-category]').forEach(b=>b.onclick=()=>{const cat=b.dataset.category;$$('.learn-filter').forEach(x=>x.classList.toggle('on',x===b));$$('.learn-section').forEach(s=>s.hidden=cat!=='全部资料'&&s.dataset.section!==cat);});
   }
   UI.views.learning={render};
+  // Durable per-account acknowledgements; being notified does not mark learning complete.
+  let notificationBusy=false, notificationUser=null, unread=[],lastNoticeAt=0;
+  async function checkUpdates(){
+    if(notificationBusy||!UI.ME||DB.mode==='demo'||document.hidden)return;
+    notificationBusy=true;const uid=UI.ME.id;
+    try{
+      let result=unread;if(notificationUser!==uid||Date.now()-lastNoticeAt>=60000){result=DB.chk(await DB.init().rpc('crm_learning_unread'))||[];lastNoticeAt=Date.now();}
+      if(UI.ME?.id!==uid)return;notificationUser=uid;unread=result;
+      document.getElementById('learningUpdateNotice')?.remove();
+      const main=document.querySelector('main');if(!main||!unread.length)return;
+      const box=document.createElement('section');box.id='learningUpdateNotice';box.setAttribute('role','status');
+      box.style.cssText='padding:16px 20px;border:1px solid #9ac6e6;border-radius:12px;background:#edf7ff;margin:0 0 18px;color:#173c5b';
+      box.innerHTML=`<b>📚 学习资料有更新 · ${unread.length} 条未确认</b><p style="margin:8px 0">${unread.slice(0,3).map(n=>UI.esc(n.title)).join('；')}${unread.length>3?'…':''}</p><div class="actions"><button class="primary sm" data-learning-updates>查看更新</button><a class="btn ghost sm" href="#/learning">进入学习中心</a><button class="ghost sm" data-learning-ack>以上更新已知晓</button></div><small>已知晓仅关闭本人的提醒，不代表已完成学习。离线期间的更新会在下次登录时提示。</small>`;
+      if(main.classList.contains('ai-chat-main'))box.style.cssText+=';position:fixed;top:12px;right:24px;max-width:420px;z-index:1500';main.prepend(box);const snapshot=unread.map(n=>n.id);
+      box.querySelector('[data-learning-ack]').onclick=async e=>{e.target.disabled=true;try{if(UI.ME?.id!==uid)return;DB.chk(await DB.init().rpc('crm_learning_ack',{p_ids:snapshot}));await checkAfterAck();}catch(ex){UI.toast(ex.message,true);e.target.disabled=false;}};
+      box.querySelector('[data-learning-updates]').onclick=()=>UI.modal(`<h2>学习资料更新</h2><p>请阅读新版资料；已完成的旧学习记录会保留。</p><ul class="timeline">${unread.map(n=>`<li><b>${UI.esc(n.title)}</b><p>${n.kind==='published'?'新发布':'内容已更新'} · ${UI.esc(new Date(n.created_at).toLocaleString('zh-CN'))}</p></li>`).join('')}</ul><a class="btn primary" href="#/learning" id="openUpdatedLearning">去学习中心</a>`,(m,close)=>m.querySelector('#openUpdatedLearning').onclick=close);
+    }catch(ex){console.warn('Learning update check unavailable');}finally{notificationBusy=false;}
+  }
+  async function checkAfterAck(){lastNoticeAt=0;document.getElementById('learningUpdateNotice')?.remove();notificationBusy=false;await checkUpdates();}
+  const bind=UI.bindShell;UI.bindShell=()=>{bind();if(notificationUser!==UI.ME?.id){unread=[];notificationUser=null;}checkUpdates();};
+  setInterval(checkUpdates,60000);window.addEventListener('focus',checkUpdates);document.addEventListener('visibilitychange',()=>{if(!document.hidden)checkUpdates();});
 })();

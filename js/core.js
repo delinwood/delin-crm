@@ -81,7 +81,7 @@
     try {
       if (!UI.ME) UI.ME = await DB.currentUser();
       if (!UI.ME) return viewLogin();
-      await UI.refresh({ force: false });      if (currentNavigation !== navigation) return;
+      if(!directoryLoadedAt)await UI.refresh({force:false});else UI.refresh({force:false}).catch(e=>console.warn('Background directory refresh unavailable'));      if (currentNavigation !== navigation) return;
       const h = location.hash || '#/home', [, name, arg] = h.match(/^#\/([^/?]+)\/?([^?]*)/) || [, 'home'];
       const v = UI.views[name] || UI.views.home;
       if (v.admin && UI.ME.role !== 'admin') return UI.views.home.render();

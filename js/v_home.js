@@ -14,9 +14,9 @@
     const today = scope.filter(c => c.next_follow_up === t);
     const week = scope.filter(c => c.next_follow_up > t && c.next_follow_up <= UI.today(7)).sort((a, b) => a.next_follow_up.localeCompare(b.next_follow_up));
     const fresh = scope.filter(c => c.status === '未联系' && !c.next_follow_up).sort((a, b) => ({ 'A+': 0, A: 1, B: 2, C: 3 }[a.priority] ?? 9) - ({ 'A+': 0, A: 1, B: 2, C: 3 }[b.priority] ?? 9));
-    const since = UI.today(-6), logs = (await DB.listAllLogs(since)).filter(l => admin || l.author_id === me.id);
-    const samples = (await DB.listSamples()).filter(s => s.status === '已寄出' || s.status === '已签收');
-    const quotes = (await DB.listQuotes()).filter(q => q.valid_until && q.valid_until >= t && q.valid_until <= UI.today(7));
+    const since=UI.today(-6);
+    const [allLogs,allSamples,allQuotes]=await Promise.all([DB.listAllLogs(since),DB.listSamples(),DB.listQuotes()]);
+    const logs=allLogs.filter(l=>admin||l.author_id===me.id),samples=allSamples.filter(s=>s.status==='已寄出'||s.status==='已签收'),quotes=allQuotes.filter(q=>q.valid_until&&q.valid_until>=t&&q.valid_until<=UI.today(7));
     const hour = new Date().getHours();
     UI.render(`<div class="pagehead"><h1>${hour < 12 ? '早上好' : hour < 18 ? '下午好' : '晚上好'}，${esc(me.full_name)} <small>${esc(t)} · ${admin ? '全团队视图 Team view' : '我的工作台 My day'}</small></h1>
       <div class="actions"><a class="btn ghost" href="#/prospect">🔎 找客户</a><a class="btn primary" href="#/new">+ 新建客户</a></div></div>
