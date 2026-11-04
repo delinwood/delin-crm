@@ -17,12 +17,14 @@ window.C = {
     ['wholesaler','建材批发商','Building-material Wholesaler'],['brand','品牌商','Brand Owner'],['other','其他','Other']
   ],
   STATUSES: [['未联系','Not contacted'],['已联系','Contacted'],['已回复','Replied'],['已报价','Quoted'],['成交','Won'],['无效','Invalid']],
-  PRIORITIES: ['A+','A','B','C'],
+  PRIORITIES: ['A','B','C','D'],
+  PRIORITY_NAMES: {A:'优先开发',B:'正常开发',C:'待核实',D:'非目标'},
+  PRIORITY_DEFINITIONS: {A:'目标产品经营明确；进口/批发/经销有证据；仓库、经销网络或批量供货能力有证据；公开联系方式可核。',B:'目标产品及B端进口、批发或经销角色有依据，规模、仓储或负责人尚未齐全。',C:'产品、B端角色或联系方式缺关键证据，先补证，不批量发信。资料不足不等于非目标。',D:'有明确依据的个人或零星买家、纯施工设计且无经销/批量采购证据、产品不符或确证停业。'},
   CHANNELS: [['email','邮件 Email'],['phone','电话 Call'],['whatsapp','WhatsApp'],['linkedin','LinkedIn'],['wechat','微信 WeChat'],['meeting','见面/展会 Meeting'],['other','其他 Other']],
   SAMPLE_STATUS: [['待寄','To send'],['已寄出','Sent'],['已签收','Delivered'],['已反馈','Feedback received']],
   INCOTERMS: ['FOB','CIF','CFR','EXW','DDP','DAP'],
   UNITS: ['m²','pc','m','box','sqft'],
-  US_EXCLUDED: ['laminate','engineered'],
+  US_EXCLUDED: ['laminate','engineered','spc','wpc_decking'],
   MOQ: '300 m²',
   // initial client info that salespeople may correct but not erase
   PROTECTED: ['company_name','country','website','company_phone','company_email','address'],

@@ -21,13 +21,21 @@
     const day = now.toLocaleDateString('en-US', { timeZone: tz, weekday: 'short' }); const work = h >= 9 && h < 17 && !['Sat', 'Sun'].includes(day);
     return { text: `${wd} ${t}`, work, tz }; };
   UI.ltBadge = c => { const l = UI.localTime(c); return l ? `<span class="lt ${l.work ? 'on' : ''}" title="${esc(l.tz)}">🕘 当地 ${esc(l.text)}${l.work ? ' · 工作时间' : ''}</span>` : ''; };
-  UI.prBadge = p => p ? `<span class="pri pri-${p.replace('+', 'p')}">${esc(p)}</span>` : '';
+  UI.prBadge = p => p ? `<span class="pri pri-${esc(p.replace('+', 'p'))}" title="${esc(C.PRIORITY_DEFINITIONS?.[p] || '旧等级，等待按新定义重新核实')}">${esc(p)} ${esc(C.PRIORITY_NAMES?.[p] || '旧等级待复核')}</span>` : '<span class="muted">待分级</span>';
+  UI.gradeGuide = () => `<section aria-label="优先级解释" style="padding:10px 14px;font-size:13px;line-height:1.65"><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:5px 16px">${C.PRIORITIES.map(p=>`<div><b>${p} ${C.PRIORITY_NAMES[p]}</b>：${esc(C.PRIORITY_DEFINITIONS[p])}</div>`).join('')}</div><small class="muted">等级不代表成交、采购意向或官方进口认证；进口证据另行记录。美国排除所有地板（含SPC），仅开发墙板、格栅、木饰面与吸音板。</small></section>`;
   UI.stBadge = s => s ? `<span class="st st-${C.STATUSES.findIndex(x => x[0] === s)}">${esc(s)}<small>${esc(C.statusEN(s))}</small></span>` : '';
   UI.chips = arr => (arr || []).map(k => `<span class="chip" title="${esc(C.productEN(k))}">${esc(C.productName(k))}</span>`).join('');
   UI.tags = arr => (arr || []).map(t => `<span class="tag">#${esc(t)}</span>`).join('');
   UI.opt = (v, label, sel) => `<option value="${esc(v)}" ${String(sel) === String(v) ? 'selected' : ''}>${esc(label)}</option>`;
   UI.dueBadge = d => { if (!d) return ''; const t = UI.today(); return `<span class="due ${d < t ? 'over' : d === t ? 'today' : ''}">${d < t ? '逾期 ' : d === t ? '今天 ' : ''}${esc(d)}</span>`; };
   UI.link = (href, text, cls) => href ? `<a class="${cls || ''}" href="${esc(href)}" ${/^https?:/.test(href) ? 'target="_blank" rel="noopener"' : ''}>${esc(text)}</a>` : '';
+  UI.canExport = () => !!UI.ME?.active && UI.ME.username === 'boss' && UI.ME.role === 'admin';
+  UI.requireExport = async () => {
+    try { if(!UI.canExport()) throw new Error('仅老板账号可以导出表格或备份');
+      if(DB.mode!=='demo' && DB.chk(await DB.init().rpc('crm_can_export'))!==true) throw new Error('仅老板账号可以导出表格或备份');
+      return true;
+    } catch(e) { UI.toast(e.message,true);return false; }
+  };
   UI.download = (name, blob) => { const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 3000); };
   UI.copy = async (text) => { try { await navigator.clipboard.writeText(text); } catch (e) { const ta = document.createElement('textarea'); ta.value = text; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove(); } UI.toast('已复制 Copied'); };
   UI.loadXLSX = () => window.XLSX ? Promise.resolve() : new Promise((ok, no) => { const s = document.createElement('script'); s.src = 'https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js'; s.onload = ok; s.onerror = () => no(new Error('Excel 库加载失败（需联网），请用 CSV')); document.head.appendChild(s); });

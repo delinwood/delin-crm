@@ -2,8 +2,9 @@
   const { esc, opt, $, $$ } = UI;
   const F = JSON.parse(sessionStorage.getItem('fcrm_filters') || '{}');
   let SORT = JSON.parse(sessionStorage.getItem('fcrm_sort') || '{"k":"updated_at","d":-1}'), PAGE = 1, SEL = new Set();
+  if(F.priority && !C.PRIORITIES.includes(F.priority)) delete F.priority;
   const PER = 50, uniq = a => [...new Set(a.filter(Boolean))].sort();
-  const PRI = { 'A+': 0, A: 1, B: 2, C: 3 };
+  const PRI = { A: 0, B: 1, C: 2, D: 3, 'A+': 4 };
 
   function filtered(list) {
     const q = (F.q || '').toLowerCase().trim(), t = UI.today();
@@ -41,7 +42,7 @@
         <select id="fstate"><option value="">州/省 State</option>${states.map(v => opt(v, v, F.state)).join('')}</select>
         <select id="fproduct"><option value="">产品 Product</option>${C.PRODUCTS.map(p => opt(p[0], p[1] + ' ' + p[2], F.product)).join('')}</select>
         <select id="fattention"><option value="">客户标记</option>${['紧急', '重要', '普通', '无效'].map(v => opt(v, v, F.attention)).join('')}</select>
-        <select id="fpriority"><option value="">优先级 Priority</option>${C.PRIORITIES.map(v => opt(v, v, F.priority)).join('')}</select>
+        <select id="fpriority"><option value="">优先级 Priority</option>${C.PRIORITIES.map(v => opt(v, v+" · "+C.PRIORITY_NAMES[v], F.priority)).join('')}</select>
         <select id="ftype"><option value="">类型 Type</option>${C.TYPES.map(t => opt(t[0], t[1] + ' ' + t[2], F.type)).join('')}</select>
         ${admin ? `<select id="fowner"><option value="">业务员 Owner</option>${opt('_none', '公海 Pool (未分配)', F.owner)}${UI.USERS.map(u => opt(u.id, u.full_name, F.owner)).join('')}</select>` : ''}
         <select id="fstatus"><option value="">状态 Status</option>${C.STATUSES.map(s => opt(s[0], s[0] + ' ' + s[1], F.status)).join('')}</select>
@@ -50,13 +51,13 @@
         <button class="ghost" id="fclear">清除</button>
       </section>
       <div class="saved">${saved.map(s => `<span class="sf"><a href="#" data-sf="${esc(s.id)}">★ ${esc(s.name)}</a><button class="x" data-sfdel="${esc(s.id)}" title="删除">×</button></span>`).join('')}<button class="ghost sm" id="savef">☆ 保存当前筛选 Save filter</button></div>
-      <div class="bar"><div id="cnt"></div><div class="actions">${canDelete ? '<button class="ghost sm" id="selectFiltered">全选筛选结果</button>' : ''}<button class="ghost sm" id="xcsv">导出 CSV</button><button class="ghost sm" id="xxlsx">导出 Excel</button></div></div>
+      <div class="bar"><div id="cnt"></div><div style="flex:1;min-width:260px">${UI.gradeGuide()}</div><div class="actions">${canDelete ? '<button class="ghost sm" id="selectFiltered">全选筛选结果</button>' : ''}${UI.canExport()?'<button class="ghost sm" id="xcsv">导出 CSV</button><button class="ghost sm" id="xxlsx">导出 Excel</button>':''}</div></div>
       <div class="bulk card" id="bulk" hidden><b id="selc"></b>
         ${admin ? `<select id="b_owner"><option value="">分配给… Assign to</option>${opt('_none', '放回公海 Back to pool', '')}${UI.USERS.filter(u => u.active).map(u => opt(u.id, u.full_name, '')).join('')}</select>
-        <select id="b_pri"><option value="">优先级…</option>${C.PRIORITIES.map(v => opt(v, v, '')).join('')}</select>` : ''}
+        <select id="b_pri"><option value="">优先级…</option>${C.PRIORITIES.map(v => opt(v, v+" · "+C.PRIORITY_NAMES[v], '')).join('')}</select>` : ''}
         <select id="b_status"><option value="">状态…</option>${C.STATUSES.filter(s => admin || s[0] !== '无效').map(s => opt(s[0], s[0], '')).join('')}</select>
         <input id="b_tag" placeholder="+ 标签 tag" style="width:110px"><input id="b_next" type="date" title="下次跟进">
-        <button class="primary sm" id="b_apply">应用 Apply</button><button class="primary sm" id="b_mail">批量发送邮件</button><button class="ghost sm" id="b_export">导出所选</button>${canDelete ? '<button class="ghost sm danger" id="b_delete">批量删除（移入回收站）</button>' : ''}<button class="ghost sm" id="b_clear">取消选择</button></div>
+        <button class="primary sm" id="b_apply">应用 Apply</button><button class="primary sm" id="b_mail">批量发送邮件</button>${UI.canExport()?'<button class="ghost sm" id="b_export">导出所选</button>':''}${canDelete ? '<button class="ghost sm danger" id="b_delete">批量删除（移入回收站）</button>' : ''}<button class="ghost sm" id="b_clear">取消选择</button></div>
       <section class="card tbl"><table><thead><tr><th class="ck"><input type="checkbox" id="selall"></th>${th('company_name', '公司 Company')}<th>类型</th>${th('country', '地区 Location')}<th>产品 Products</th><th>客户标记</th>${th('priority', '优先级')}${th('status', '状态')}${admin ? th('owner_id', '业务员') : ''}${th('next_follow_up', '下次跟进')}${th('last_follow_up', '最近跟进')}<th>当地时间</th></tr></thead><tbody id="rows"></tbody></table></section>
       <div class="pager" id="pager"></div>`, 'list');
     draw();
@@ -67,7 +68,7 @@
         if (k === 'country') {
           F.state = '';
           const states = uniq(C2.filter(c => !F.country || c.country === F.country).map(c => c.state));
-          $('#fstate').innerHTML = '<option value="">州/省 State</option>' + states.map(v => opt(v, v, '')).join('');
+          $('#fstate').innerHTML = '<option value="">州/省 State</option>' + states.map(v => opt(v, v+" · "+C.PRIORITY_NAMES[v], '')).join('');
         }
         draw();
       };
@@ -82,15 +83,15 @@
       $$('th.sortable').forEach(h => { const label = h.textContent.replace(/[▲▼]/g, '').trim(); h.classList.toggle('on', h.dataset.k === SORT.k); h.textContent = label + (h.dataset.k === SORT.k ? (SORT.d > 0 ? ' ▲' : ' ▼') : ''); });
       draw();
     });
-    $('#savef').onclick = async () => { const n = prompt('筛选名称 Name this filter（如：美国A+未联系）'); if (n) { await DB.saveFilter(n, { ...F }); UI.toast('已保存'); list(); } };
-    $$('[data-sf]').forEach(a => a.onclick = e => { e.preventDefault(); const s = saved.find(x => x.id === a.dataset.sf); Object.keys(F).forEach(k => delete F[k]); Object.assign(F, s.filters); PAGE = 1; list(); });
+    $('#savef').onclick = async () => { const n = prompt('筛选名称 Name this filter（如：美国A未联系）'); if (n) { await DB.saveFilter(n, { ...F }); UI.toast('已保存'); list(); } };
+    $$('[data-sf]').forEach(a => a.onclick = e => { e.preventDefault(); const s = saved.find(x => x.id === a.dataset.sf); Object.keys(F).forEach(k => delete F[k]); Object.assign(F, s.filters); if(F.priority && !C.PRIORITIES.includes(F.priority)) delete F.priority; PAGE = 1; list(); });
     $$('[data-sfdel]').forEach(b => b.onclick = async () => { await DB.deleteFilter(b.dataset.sfdel); list(); });
-    $('#xcsv').onclick = () => UI.exportRows(UI.filtered(), 'csv'); $('#xxlsx').onclick = () => UI.exportRows(UI.filtered(), 'xlsx');
+    if($('#xcsv')) $('#xcsv').onclick = () => UI.exportRows(UI.filtered(), 'csv'); if($('#xxlsx')) $('#xxlsx').onclick = () => UI.exportRows(UI.filtered(), 'xlsx');
     $('#selall').onchange = e => { const rows = pageRows(); rows.forEach(c => e.target.checked ? SEL.add(c.id) : SEL.delete(c.id)); draw(); };
     if ($('#selectFiltered')) $('#selectFiltered').onclick = () => { SEL = new Set(UI.filtered().map(c => c.id)); draw(); };
     if ($('#b_delete')) $('#b_delete').onclick = () => removeClients(UI.CLIENTS.filter(c => SEL.has(c.id)));
     $('#b_clear').onclick = () => { SEL.clear(); draw(); };
-    $('#b_export').onclick = () => UI.exportRows(UI.CLIENTS.filter(c => SEL.has(c.id)), 'xlsx');
+    if($('#b_export')) $('#b_export').onclick = () => UI.exportRows(UI.CLIENTS.filter(c => SEL.has(c.id)), 'xlsx');
     $('#b_mail').onclick = () => UI.mailCompose([...SEL]);
     $('#b_apply').onclick = async () => {
       const patch = {}, o = $('#b_owner'), p = $('#b_pri');
@@ -157,6 +158,7 @@
 
   // ---------------- EXPORT ----------------
   UI.exportRows = async (list, fmt) => {
+    if(!await UI.requireExport())return;
     const rows = list.map(c => { const o = {}; C.FIELDS.forEach(([k, cn, en]) => { let v = c[k];
       if (k === 'products') v = (c.products || []).map(p => C.productName(p) + ' ' + C.productEN(p)).join('; ');
       if (k === 'tags') v = (c.tags || []).join('; '); if (k === 'customer_type') v = C.typeName(c.customer_type); if (k === 'owner') v = c.owner_id ? (UI.USERS.find(u => u.id === c.owner_id) || {}).username || '' : '';
@@ -175,7 +177,7 @@
   let TAB = 'log';
   async function detail(id) {
     let c; try { c = await DB.getClient(id); } catch (e) { return UI.render(`<div class="card pad">${esc(e.message)} <a href="#/list">返回</a></div>`, 'list'); }
-    const admin = UI.ME.role === 'admin', [logs, quotes, samples, audit] = await Promise.all([DB.listLogs(id), DB.listQuotes(id), DB.listSamples(id), DB.listAudit({ client_id: id, limit: 100 })]);
+    const admin = UI.ME.role === 'admin', [logs, quotes, samples, audit, grades] = await Promise.all([DB.listLogs(id), DB.listQuotes(id), DB.listSamples(id), DB.listAudit({ client_id: id, limit: 100 }),DB.mode==='demo'?Promise.resolve([]):DB.init().rpc('crm_priority_history',{p_client:id}).then(r=>DB.chk(r))]);
     const canDelete = await deleteAllowed();
     const usWarn = c.country === 'USA' && (c.products || []).some(p => C.US_EXCLUDED.includes(p)), lt = UI.localTime(c);
     const ids = UI.filtered().map(x => x.id), i = ids.indexOf(id), prev = ids[i - 1], next = ids[i + 1];
@@ -185,7 +187,7 @@
         <div class="meta">${esc(C.typeName(c.customer_type))} · ${esc([c.city, c.state, c.country].filter(Boolean).join(', '))} ${UI.ltBadge(c)}</div>
         <div class="badges">${UI.prBadge(c.priority)} ${UI.stBadge(c.status)} ${c.next_follow_up ? '下次跟进 ' + UI.dueBadge(c.next_follow_up) : '<span class="due none">未设下次跟进</span>'} <span class="owner">负责人 <b>${esc(UI.userName(c.owner_id))}</b></span> ${UI.tags(c.tags)}</div></div>
         <div class="quick">${c.company_phone ? UI.link(UI.tel(c.company_phone, c), '📞 拨打', 'btn ghost') : ''}${wa ? UI.link(wa, '💬 WhatsApp', 'btn ghost') : ''}${c.company_email ? UI.link('mailto:' + c.company_email, '✉️ 邮件', 'btn ghost') : ''}${c.website ? UI.link(UI.url(c.website), '🌐 网站', 'btn ghost') : ''}${c.contact_linkedin ? UI.link(UI.url(c.contact_linkedin), 'in LinkedIn', 'btn ghost') : ''}<a class="btn primary" href="#/templates/${esc(c.id)}">✍️ 写开发信</a></div></section>
-      ${usWarn ? '<div class="warn">⚠️ 美国市场不推强化/实木复合地板 (No laminate/engineered for USA)</div>' : ''}
+      ${usWarn ? '<div class="warn">⚠️ 美国只开发墙板、格栅、木饰面及吸音板；不开发任何地板（含SPC）</div>' : ''}
       ${lt && !lt.work ? `<div class="info">🌙 客户当地现在是 ${esc(lt.text)}，非工作时间——建议邮件或定时发送，电话/WhatsApp 等对方上班再联系。</div>` : ''}
       <div class="grid2 dgrid"><div class="dprof">
         <section class="card pad"><div class="sec-h"><h2>客户资料 <small>Profile</small></h2><div><button class="ghost sm" id="edit">编辑 Edit</button>${canDelete ? ` <button class="ghost sm danger" id="del">删除（移入回收站）</button>` : ''}</div></div>
@@ -219,7 +221,7 @@
             <table class="mini"><thead><tr><th>寄出</th><th>内容</th><th>快递/单号</th><th>状态</th><th>反馈</th></tr></thead><tbody>
             ${samples.map(s => `<tr><td>${esc(s.sent_date || '')}</td><td>${esc(s.items)}<div class="muted">${esc(s.author_name)}</div></td><td>${esc(s.courier || '')} ${s.tracking_no ? `<a href="https://www.google.com/search?q=${encodeURIComponent((s.courier || '') + ' ' + s.tracking_no)}" target="_blank" rel="noopener">${esc(s.tracking_no)}</a>` : ''}</td>
               <td><select data-sst="${esc(s.id)}">${C.SAMPLE_STATUS.map(x => opt(x[0], x[0], s.status)).join('')}</select></td><td><input data-sfb="${esc(s.id)}" value="${esc(s.feedback || '')}" placeholder="客户反馈…"></td></tr>`).join('') || '<tr><td colspan="5" class="muted">暂无样品记录</td></tr>'}</tbody></table></div>
-          <div class="tabp" data-p="audit" ${TAB !== 'audit' ? 'hidden' : ''}><ul class="audit">${audit.map(a => `<li><span class="muted">${esc(a.at.slice(0, 16).replace('T', ' '))}</span> <b>${esc(a.actor_name)}</b> ${UI.auditText(a)}</li>`).join('') || '<li class="muted">暂无</li>'}</ul></div>
+          <div class="tabp" data-p="audit" ${TAB !== 'audit' ? 'hidden' : ''}><h3>优先级复核记录</h3>${grades.map(g=>`<section class="card pad"><b>${esc(g.old_priority||'未分级')} → ${esc(g.new_priority)} · ${esc(g.reviewed_at.slice(0,10))}</b><p>${esc(g.reason)}</p><p>进口证据：${esc(g.import_evidence)}</p><div style="white-space:pre-wrap;overflow-wrap:anywhere">${esc(g.source_note)}</div></section>`).join('')||'<p>暂无专项复核记录</p>'}<ul class="audit">${audit.map(a => `<li><span class="muted">${esc(a.at.slice(0, 16).replace('T', ' '))}</span> <b>${esc(a.actor_name)}</b> ${UI.auditText(a)}</li>`).join('') || '<li class="muted">暂无</li>'}</ul></div>
         </section></div></div>`, 'list');
     UI.bindAttention();
     const mailQuick = document.querySelector('.hero .quick');
@@ -256,7 +258,7 @@
 
   // ---------------- FORM ----------------
   function form(c, prefill) {
-    const isNew = !c; c = c || { status: '未联系', priority: 'B', country: '', products: [], tags: [], ...(prefill || {}) }; const admin = UI.ME.role === 'admin';
+    const isNew = !c; c = c || { status: '未联系', priority: 'C', country: '', products: [], tags: [], ...(prefill || {}) }; const admin = UI.ME.role === 'admin';
     const inp = (k, label, type, extra) => `<label>${label}<input name="${k}" type="${type || 'text'}" value="${esc(c[k] || '')}" ${extra || ''}></label>`;
     const lockNote = !admin && !isNew ? '<p class="muted small">🔒 初始资料（名称/国家/网站/电话/邮箱/地址）可修改但不可清空；负责人由管理员分配。</p>' : '';
     UI.render(`<div class="crumbs"><a href="${isNew ? '#/list' : '#/client/' + esc(c.id)}">← 返回 Back</a></div>
@@ -268,7 +270,7 @@
       <datalist id="countries">${Object.keys(C.TZ).map(k => `<option value="${esc(k)}">`).join('')}</datalist>
       <h3>采购联系人 Purchasing contact <small>只填已核实的信息</small></h3><div class="g3">${inp('contact_name', '姓名 Name')}${inp('contact_title', '职位 Title')}${inp('contact_linkedin', 'LinkedIn URL')}</div>
       <h3>业务 Business</h3><div class="prods">${C.PRODUCTS.map(p => `<label class="ck"><input type="checkbox" name="products" value="${p[0]}" ${(c.products || []).includes(p[0]) ? 'checked' : ''}> ${p[1]} <small>${p[2]}</small></label>`).join('')}</div>
-      <div class="g3"><label>优先级 Priority<select name="priority">${C.PRIORITIES.map(v => opt(v, v, c.priority)).join('')}</select></label>
+      <div class="g3"><label>优先级 Priority<select name="priority">${C.PRIORITIES.map(v => opt(v, v+" · "+C.PRIORITY_NAMES[v], c.priority)).join('')}</select></label>
         <label>跟进状态 Status<select name="status">${C.STATUSES.filter(s => admin || s[0] !== '无效' || c.status === '无效').map(s => opt(s[0], s[0] + ' ' + s[1], c.status)).join('')}</select></label>
         ${admin ? `<label>负责业务员 Owner<select name="owner_id">${opt('', '公海 Pool（未分配）', c.owner_id || '')}${UI.USERS.filter(u => u.active).map(u => opt(u.id, u.full_name + ' (' + u.username + ')', isNew && !prefill ? UI.ME.id : c.owner_id)).join('')}</select></label>` : `<label>负责业务员 Owner<input disabled value="${esc(isNew ? UI.ME.full_name : UI.userName(c.owner_id))}"></label>`}
         ${inp('next_follow_up', '下次跟进 Next follow-up', 'date')}<label>标签 Tags（逗号分隔）<input name="tags" value="${esc((c.tags || []).join(', '))}" placeholder="展会2026, 私标, 大客户"></label></div>

@@ -93,7 +93,7 @@
         <h3>新增账号</h3><form id="nu" class="g2"><input name="username" placeholder="用户名 sales5" required pattern="[a-zA-Z0-9_.]+"><input name="full_name" placeholder="姓名" required><input name="email" type="email" placeholder="登录邮箱（可选）Login email" class="span2"><input name="password" placeholder="初始密码 (≥8位)" required minlength="8"><select name="role">${opt('sales', '业务员', 'sales')}${opt('admin', '管理员', '')}</select><div class="span2 right"><button class="primary sm">创建</button></div></form>
         <p class="muted small">离职处理：先“停用”账号（无法登录），再把其客户“放回公海”或在客户列表批量转给他人；历史跟进记录保留。</p></section>
       <section class="card pad"><h2>备份 Backup</h2><p>导出全部数据（客户、跟进、报价、样品、操作日志、模板、账号），建议每周一次存到网盘。</p>
-        <div class="qa"><button class="primary" id="bkx">⬇️ Excel 多表备份</button><button class="ghost" id="bkj">⬇️ JSON 完整备份</button></div>
+        ${UI.canExport()?'<div class="qa"><button class="primary" id="bkx">⬇️ Excel 多表备份</button><button class="ghost" id="bkj">⬇️ JSON 完整备份</button></div>':'<p>仅老板账号可以导出备份。</p>'}
         <h2 style="margin-top:22px">导入客户 Import (CSV / Excel)</h2><p class="muted small">支持本系统导出的文件、tools/prospect.py 生成的 crm_import.csv、以及任意表头（下一步手动对应字段）。导入前自动查重。</p>
         <input type="file" id="impf" accept=".csv,.xlsx,.xls"><div id="impbox"></div></section></div>`, 'admin');
     $$('[data-tog]').forEach(b => b.onclick = async () => { try { await DB.updateUser(b.dataset.tog, { active: b.dataset.a !== '1' }); await UI.refresh(); admin(); } catch (e) { UI.toast(e.message, 1); } });
@@ -101,8 +101,8 @@
       try { await DB.updateUser(b.dataset.pw, { password: pw }); UI.toast('密码已重置'); } catch (e) { UI.toast(e.message, 1); } });
     $$('[data-free]').forEach(b => b.onclick = async () => { const ids = UI.CLIENTS.filter(c => c.owner_id === b.dataset.free).map(c => c.id); if (!confirm(`把 ${ids.length} 家客户放回公海？`)) return; await DB.bulkUpdate(ids, { owner_id: null }); await UI.refresh(); admin(); UI.toast('已放回公海'); });
     $('#nu').onsubmit = async e => { e.preventDefault(); const f = e.target; try { await DB.createUser({ username: f.username.value, full_name: f.full_name.value, password: f.password.value, role: f.role.value, email: f.email.value }); UI.toast('已创建'); await UI.refresh(); admin(); } catch (err) { UI.toast(err.message, 1); } };
-    $('#bkj').onclick = async () => { const b = await DB.backup(); UI.download(`crm_backup_${UI.today()}.json`, new Blob([JSON.stringify(b, null, 1)], { type: 'application/json' })); };
-    $('#bkx').onclick = async () => { const b = await DB.backup(); try { await UI.loadXLSX(); } catch (e) { return UI.toast(e.message, 1); }
+    if($('#bkj')) $('#bkj').onclick = async () => { if(!await UI.requireExport())return; const b = await DB.backup(); UI.download(`crm_backup_${UI.today()}.json`, new Blob([JSON.stringify(b, null, 1)], { type: 'application/json' })); };
+    if($('#bkx')) $('#bkx').onclick = async () => { if(!await UI.requireExport())return; const b = await DB.backup(); try { await UI.loadXLSX(); } catch (e) { return UI.toast(e.message, 1); }
       const wb = XLSX.utils.book_new(), flat = r => Object.fromEntries(Object.entries(r).map(([k, v]) => [k, Array.isArray(v) ? v.join('; ') : (v && typeof v === 'object') ? JSON.stringify(v) : v]));
       ['clients', 'follow_ups', 'quotes', 'samples', 'audit_log', 'templates', 'users'].forEach(k => XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet((b[k] || []).map(flat)), k)); XLSX.writeFile(wb, `crm_backup_${UI.today()}.xlsx`); };
     $('#impf').onchange = async e => { const file = e.target.files[0]; if (!file) return; let rows;
@@ -116,7 +116,7 @@
     IMP.data.forEach((r, i) => { const o = {}; IMP.map.forEach((k, j) => { if (k && r[j] != null && String(r[j]).trim() !== '') o[k] = String(r[j]).trim(); });
       if (!o.company_name) return; const c = { ...o };
       c.products = (o.products || '').split(/[;,，、|]/).map(prodKey).filter(Boolean); c.tags = (o.tags || '').split(/[;,，、|]/).map(s => s.trim()).filter(Boolean);
-      if (o.customer_type) c.customer_type = typeKey(o.customer_type); if (o.priority && !C.PRIORITIES.includes(o.priority)) c.priority = 'B';
+      if (o.customer_type) c.customer_type = typeKey(o.customer_type); if (!o.priority || !C.PRIORITIES.includes(o.priority)) c.priority = 'C';
       if (o.status && !C.STATUSES.some(s => s[0] === o.status)) c.status = '未联系';
       if (o.next_follow_up && !/^\d{4}-\d{2}-\d{2}$/.test(o.next_follow_up)) delete c.next_follow_up;
       delete c.owner; c.owner_id = IMP.owner === 'column' ? (byU[(o.owner || '').toLowerCase()] || null) : IMP.owner === 'pool' ? null : IMP.owner;
