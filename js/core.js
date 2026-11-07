@@ -64,11 +64,15 @@
     ['dash','#/dashboard','📊','团队看板','Dashboard','admin','管理中心'],['admin','#/admin','⚙️','系统管理','Admin','admin','管理中心']
   ];
   UI.shell = (inner, active) => {
-    const admin = UI.ME.role === 'admin', nav = NAV.filter(n => !n[5] || admin), od = UI.overdue(UI.CLIENTS.filter(c => c.owner_id === UI.ME.id)).length;
+    const admin = UI.ME.role === 'admin';
+    const nav = UI.isSocialOperator
+      ? [['social','#/social','🤝','社媒客户','Social','','客户开发'],...NAV.filter(n=>['reminders','learning'].includes(n[0]))]
+      : NAV.filter(n => !n[5] || admin);
+    const od = UI.overdue(UI.CLIENTS.filter(c => c.owner_id === UI.ME.id)).length;
     const groups = [...new Set(nav.map(n => n[6]))];
     const links = groups.map(group => `<div class="side-group"><div class="side-label">${group}</div>${nav.filter(n => n[6] === group).map(n => `<a href="${n[1]}" class="side-link ${active === n[0] ? 'on' : ''}" ${active === n[0] ? 'aria-current="page"' : ''}><span class="side-icon">${n[2]}</span><span>${n[3]}</span>${n[0] === 'home' && od ? `<b class="dot">${od}</b>` : ''}</a>`).join('')}</div>`).join('');
     const mobile = ['home','list','prospect','learning','agent'].map(id => nav.find(n => n[0] === id)).filter(Boolean);
-    return `<div class="app-layout"><aside class="app-sidebar"><a class="brand" href="#/home">${cfg.LOGO_URL ? `<img src="${esc(cfg.LOGO_URL)}" alt="">` : '<div class="logo">F</div>'}<div><div class="bn">${esc(cfg.COMPANY_NAME_CN)}</div><div class="bs">${esc(cfg.COMPANY_NAME_EN)} · CRM</div></div></a><div class="side-scroll">${links}</div><div class="side-account"><a href="#/me" class="account-link"><span class="avatar">${esc((UI.ME.full_name || '?').slice(0,1))}</span><span><b>${esc(UI.ME.full_name)}</b><small>${admin ? '管理员' : '业务员'}</small></span></a><button class="ghost sm" id="logout">退出</button></div></aside><button class="sidebar-shade" id="sidebarShade" aria-label="关闭导航"></button><section class="app-content"><header class="mobile-top"><button class="ghost sm mobile-menu" id="menuToggle" aria-expanded="false">☰ 导航</button><a class="brand" href="#/home"><div class="logo">F</div><div class="bn">${esc(cfg.COMPANY_NAME_CN)}</div></a><a href="#/me" class="mobile-user">${esc(UI.ME.full_name)}</a><button class="ghost sm mobile-logout" id="logoutMobile">退出</button></header>
+    return `<div class="app-layout"><aside class="app-sidebar"><a class="brand" href="#/home">${cfg.LOGO_URL ? `<img src="${esc(cfg.LOGO_URL)}" alt="">` : '<div class="logo">F</div>'}<div><div class="bn">${esc(cfg.COMPANY_NAME_CN)}</div><div class="bs">${esc(cfg.COMPANY_NAME_EN)} · CRM</div></div></a><div class="side-scroll">${links}</div><div class="side-account"><a href="#/me" class="account-link"><span class="avatar">${esc((UI.ME.full_name || '?').slice(0,1))}</span><span><b>${esc(UI.ME.full_name)}</b><small>${UI.isSocialOperator ? '运营' : admin ? '管理员' : '业务员'}</small></span></a><button class="ghost sm" id="logout">退出</button></div></aside><button class="sidebar-shade" id="sidebarShade" aria-label="关闭导航"></button><section class="app-content"><header class="mobile-top"><button class="ghost sm mobile-menu" id="menuToggle" aria-expanded="false">☰ 导航</button><a class="brand" href="#/home"><div class="logo">F</div><div class="bn">${esc(cfg.COMPANY_NAME_CN)}</div></a><a href="#/me" class="mobile-user">${esc(UI.ME.full_name)}</a><button class="ghost sm mobile-logout" id="logoutMobile">退出</button></header>
       ${cfg.MODE === 'demo' ? '<div class="demo">演示模式 Demo — 数据仅保存在本浏览器 · <a href="#" id="resetDemo">重置演示数据</a></div>' : ''}<main>${inner}</main></section><nav class="tabbar">${mobile.map(n => `<a href="${n[1]}" class="${active === n[0] ? 'on' : ''}"><span>${n[2]}</span>${n[3]}</a>`).join('')}</nav></div>`;
   };
   UI.bindShell = () => {
@@ -130,6 +134,9 @@
   }
   const DIRECTORY_TTL=30000; let directoryLoadedAt=0,directoryRequest=null,directoryEpoch=0; UI.invalidateDirectory=()=>{directoryLoadedAt=0;directoryEpoch++;directoryRequest=null;}; UI.refresh=async({force=true}={})=>{if(!force&&directoryLoadedAt&&Date.now()-directoryLoadedAt<DIRECTORY_TTL)return; if(directoryRequest)return directoryRequest; const epoch=directoryEpoch; directoryRequest=Promise.all([DB.listUsers(),DB.listClients()]).then(([users,clients])=>{if(epoch===directoryEpoch){UI.USERS=users;UI.CLIENTS=clients;directoryLoadedAt=Date.now();}}).finally(()=>{directoryRequest=null;}); return directoryRequest;};
 
+  const operatorScope = UI.viewRead(async () => DB.mode!=='demo' &&
+    DB.chk(await DB.init().rpc('crm_social_is_operator'))===true);
+  let scopedUser;
   let navigation = 0;
   async function route() {
     const currentNavigation = ++navigation, hash = location.hash || '#/home';
@@ -158,6 +165,17 @@
       if (!UI.ME) UI.ME = await DB.currentUser();
       if (currentNavigation !== navigation) return;
       if (!UI.ME) return viewLogin();
+      if (scopedUser !== UI.ME) {
+        const user = UI.ME;
+        const isOperator = await operatorScope().catch(() => false);
+        if (currentNavigation !== navigation || user !== UI.ME) return;
+        UI.isSocialOperator = isOperator;
+        scopedUser = user;
+      }
+      if (UI.isSocialOperator && !/^#\/(social|learning|reminders|me)(?:\/|\?|$)/.test(hash)) {
+        location.hash = '#/social';
+        return;
+      }
       if(!directoryLoadedAt)await UI.refresh({force:false});else UI.refresh({force:false}).catch(e=>console.warn('Background directory refresh unavailable'));      if (currentNavigation !== navigation) return;
       const h = location.hash || '#/home', [, name, arg] = h.match(/^#\/([^/?]+)\/?([^?]*)/) || [, 'home'];
       const v = UI.views[name] || UI.views.home;
