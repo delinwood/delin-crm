@@ -51,13 +51,13 @@
         <button class="ghost" id="fclear">清除</button>
       </section>
       <div class="saved">${saved.map(s => `<span class="sf"><a href="#" data-sf="${esc(s.id)}">★ ${esc(s.name)}</a><button class="x" data-sfdel="${esc(s.id)}" title="删除">×</button></span>`).join('')}<button class="ghost sm" id="savef">☆ 保存当前筛选 Save filter</button></div>
-      <div class="bar"><div id="cnt"></div><div style="flex:1;min-width:260px">${UI.gradeGuide()}</div><div class="actions">${canDelete ? '<button class="ghost sm" id="selectFiltered">全选筛选结果</button>' : ''}${UI.canExport()?'<button class="ghost sm" id="xcsv">导出 CSV</button><button class="ghost sm" id="xxlsx">导出 Excel</button>':''}</div></div>
+      <div class="bar"><div id="cnt"></div><div style="flex:1;min-width:260px">${UI.gradeGuide()}</div><div class="actions"><button class="ghost sm" id="selectFiltered">全选筛选结果</button>${UI.canExport()?'<button class="ghost sm" id="xcsv">导出 CSV</button><button class="ghost sm" id="xxlsx">导出 Excel</button>':''}</div></div>
       <div class="bulk card" id="bulk" hidden><b id="selc"></b>
         ${admin ? `<select id="b_owner"><option value="">分配给… Assign to</option>${opt('_none', '放回公海 Back to pool', '')}${UI.USERS.filter(u => u.active).map(u => opt(u.id, u.full_name, '')).join('')}</select>
         <select id="b_pri"><option value="">优先级…</option>${C.PRIORITIES.map(v => opt(v, v+" · "+C.PRIORITY_NAMES[v], '')).join('')}</select>` : ''}
         <select id="b_status"><option value="">状态…</option>${C.STATUSES.filter(s => admin || s[0] !== '无效').map(s => opt(s[0], s[0], '')).join('')}</select>
         <input id="b_tag" placeholder="+ 标签 tag" style="width:110px"><input id="b_next" type="date" title="下次跟进">
-        <button class="primary sm" id="b_apply">应用 Apply</button><button class="primary sm" id="b_mail">批量发送邮件</button>${UI.canExport()?'<button class="ghost sm" id="b_export">导出所选</button>':''}${canDelete ? '<button class="ghost sm danger" id="b_delete">批量删除（移入回收站）</button>' : ''}<button class="ghost sm" id="b_clear">取消选择</button></div>
+        <button class="primary sm" id="b_apply">应用 Apply</button><button class="primary sm" id="b_mail">批量发送邮件</button>${UI.canExport()?'<button class="ghost sm" id="b_export">导出所选</button>':''}${canDelete ? '<button class="ghost sm danger" id="b_delete">批量删除（移入回收站）</button>' : ''}${UI.batchAction?'<button class="ghost sm" id="b_release">批量退回第二公海</button>':''}<button class="ghost sm" id="b_clear">取消选择</button></div>
       <section class="card tbl"><table><thead><tr><th class="ck"><input type="checkbox" id="selall"></th>${th('company_name', '公司 Company')}<th>类型</th>${th('country', '地区 Location')}<th>产品 Products</th><th>客户标记</th>${th('priority', '优先级')}${th('status', '状态')}${admin ? th('owner_id', '业务员') : ''}${th('next_follow_up', '下次跟进')}${th('last_follow_up', '最近跟进')}<th>当地时间</th></tr></thead><tbody id="rows"></tbody></table></section>
       <div class="pager" id="pager"></div>`, 'list');
     draw();
@@ -90,6 +90,15 @@
     $('#selall').onchange = e => { const rows = pageRows(); rows.forEach(c => e.target.checked ? SEL.add(c.id) : SEL.delete(c.id)); draw(); };
     if ($('#selectFiltered')) $('#selectFiltered').onclick = () => { SEL = new Set(UI.filtered().map(c => c.id)); draw(); };
     if ($('#b_delete')) $('#b_delete').onclick = () => removeClients(UI.CLIENTS.filter(c => SEL.has(c.id)));
+    if($('#b_release'))$('#b_release').onclick = () => {
+      const chosen=UI.CLIENTS.filter(c=>SEL.has(c.id));
+      if(chosen.some(c=>!c.owner_id||UI.isInvalid(c)||(!admin&&c.owner_id!==UI.ME.id))) return UI.toast('请仅勾选有负责人、可退回的有效客户',1);
+      UI.batchAction({title:'批量退回第二公海',items:chosen.map(c=>({id:c.id,label:c.company_name})),fields:UI.batchReason,
+        description:'保留客户和跟进历史，停止相关自动邮件计划。',
+        apply:({id},values)=>DB.releaseClient(id,values.reason.trim()),
+        complete:async done=>{done.forEach(item=>SEL.delete(item.id));await UI.refresh();await list();}
+      });
+    };
     $('#b_clear').onclick = () => { SEL.clear(); draw(); };
     if($('#b_export')) $('#b_export').onclick = () => UI.exportRows(UI.CLIENTS.filter(c => SEL.has(c.id)), 'xlsx');
     $('#b_mail').onclick = () => UI.mailCompose([...SEL]);
@@ -134,6 +143,8 @@
   function draw() {
     sessionStorage.setItem('fcrm_filters', JSON.stringify(F));
     const all = UI.filtered(), rows = all.slice((PAGE - 1) * PER, PAGE * PER), admin = UI.ME.role === 'admin', pages = Math.max(1, Math.ceil(all.length / PER));
+    const visibleIds=new Set(all.map(c=>c.id));
+    for(const id of SEL) if(!visibleIds.has(id)) SEL.delete(id);
     $('#cnt').innerHTML = `共 <b>${all.length}</b> 家客户 <small>${all.length} clients</small>`;
     $('#rows').innerHTML = rows.map(c => { const lt = UI.localTime(c); return `<tr data-id="${esc(c.id)}" class="${SEL.has(c.id) ? 'sel' : ''}">
       <td class="ck" data-l=""><input type="checkbox" data-sel="${esc(c.id)}" ${SEL.has(c.id) ? 'checked' : ''}></td>
