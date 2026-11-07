@@ -33,7 +33,7 @@
     const [plans,outcomes,replies,quotes,samples,opps]=await Promise.all([
       table('crm_reorder_plans','*',q=>q.order('client_id')),
       table('crm_work_outcomes','*',q=>q.order('created_at',{ascending:false}).order('id')),
-      table('crm_mail_inbound','id,client_id,subject,received_at',q=>q.eq('kind','reply').gte('received_at',d30+'T00:00:00+08:00').order('received_at',{ascending:false}).order('id')),
+      table('crm_inquiry_inbox','id,client_id,subject,received_at',q=>q.eq('source','gmail').is('handled_at',null).gte('received_at',d30+'T00:00:00+08:00').order('received_at',{ascending:false}).order('id')),
       DB.listQuotes(),DB.listSamples(),B.rows('opportunity')
     ]);
     if(!current())return;
@@ -47,7 +47,7 @@
       const key=row.client_id+':'+row.task_key;
       if(!done.has(key))done.set(key,row);
     }
-    for(const x of replies)add(x.client_id,'reply:'+x.id,'客户回复待处理',x.subject||'已同步的客户真实回复',x.received_at.slice(0,10),'#/inbound');
+    for(const x of replies)add(x.client_id,'reply:'+x.id,'客户回复待处理',x.subject||'已同步的客户真实回复',x.received_at.slice(0,10),'#/inquiry-inbox');
     for(const x of quotes)if(x.valid_until&&x.valid_until>=d30&&x.valid_until<=d7)
       add(x.client_id,'quote:'+x.id,'报价有效期跟进',x.spec||'核对客户是否已收到或需要更新报价',x.valid_until);
     for(const x of samples)if(x.status==='已签收')
@@ -67,7 +67,7 @@
       if(x.next_on&&x.next_on<=d)add(x.client_id,x.task_key,'下一步跟进',x.outcome,x.next_on,item?.href);
     }
     const items=[...records.values()].sort((a,b)=>a.due.localeCompare(b.due));
-    UI.render(`<div class="pagehead"><h1>今日待办</h1><div class="actions"><a class="btn ghost" href="#/home">回工作台</a><a class="btn ghost" href="#/reorder-plan">管理补货计划</a><button id="workReload" class="ghost">刷新</button></div></div>
+    UI.render(`<div class="pagehead"><h1>今日待办</h1><div class="actions"><a class="btn ghost" href="#/home">回工作台</a><a class="btn ghost" href="#/inquiry-inbox">询盘待处理箱</a><a class="btn ghost" href="#/reorder-plan">管理补货计划</a><button id="workReload" class="ghost">刷新</button></div></div>
       <section class="card pad"><p>按北京时间。包含近30天已同步的客户回复、报价有效期、已签收样品、商机下一步、追单和补货提醒。</p>
       <p>当前 ${items.length} 项，${[...done.values()].filter(x=>x.next_on>d&&clients.has(x.client_id)).length} 项已有未来安排。</p>
       ${items.map((item,i)=>`<article class="card pad"><b>${esc(item.title)}</b> · <a href="${path(item.client.id)}">${esc(item.client.company_name)}</a> · ${esc(UI.userName(item.client.owner_id))}
