@@ -46,8 +46,12 @@
     });
   }
   async function pool(kind='initial') {
+    const current=(UI.viewCurrent?.() || (() => true));
+    const canArchive=UI.ME.role==='admin' && await (UI.archiveVisible?.() || DB.canDeleteClients()).catch(()=>false);
+    if(current())drawPool(kind,canArchive);
+  }
+  function drawPool(kind,canArchive) {
     const admin=UI.ME.role==='admin', secondary=kind==='secondary';
-    const canArchive=admin && await DB.canDeleteClients().catch(()=>false);
     if (lastKind !== kind) { selected.clear(); page=0; lastKind=kind; }
     const available=UI.CLIENTS.filter(c=>!c.owner_id&&!UI.isInvalid(c));
     const base=available.filter(c=>(c.pool_kind||'initial')===kind);
@@ -62,11 +66,13 @@
       ${useBatch?UI.batchTools(actions):''}</section>
       <section class="card tbl"><table><thead><tr><th>选择</th><th>公司</th><th>国家 / 城市</th><th>产品</th>${secondary?'<th>退回说明</th>':''}<th>操作</th></tr></thead><tbody>${paged.map(c=>`<tr><td>${useBatch?UI.batchCheckbox(c.id,c.company_name):''}</td><td><a href="#/client/${esc(c.id)}">${esc(c.company_name)}</a><p class="muted small">${esc(U.domain(c.website))}</p></td><td>${esc([c.country,c.city].filter(Boolean).join(' / '))}</td><td>${UI.chips(c.products)}</td>${secondary?`<td>${esc(c.return_reason)}<p class="muted small">${esc(UI.userName(c.previous_owner))} · ${esc((c.returned_at||'').slice(0,10))}</p></td>`:''}<td>${!admin?`<button class="primary sm" data-pool-claim="${esc(c.id)}">领取为我的客户</button>`:''}<button class="ghost sm" data-pool-history="${esc(c.id)}">流转记录</button></td></tr>`).join('')||'<tr><td colspan="6">暂无符合条件的客户</td></tr>'}</tbody></table></section>
       <div class="actions"><button class="ghost" id="poolPrev" ${page===0?'disabled':''}>上一页</button><span>${page+1} / ${Math.max(1,Math.ceil(list.length/50))}</span><button class="ghost" id="poolNext" ${(page+1)*50>=list.length?'disabled':''}>下一页</button></div>`,secondary?'second-pool':'pool');
-    $('#poolSearch').onchange=e=>{filter=e.target.value;page=0;pool(kind);};
-    $('#poolRefresh').onclick=async()=>{await UI.refresh();pool(kind);};
-    $('#poolPrev').onclick=()=>{page--;pool(kind);}; $('#poolNext').onclick=()=>{page++;pool(kind);};
+    $('#poolSearch').onchange=e=>{filter=e.target.value;page=0;drawPool(kind,canArchive);};
+    const current=(UI.viewCurrent?.() || (() => true));
+    const refresh=async()=>{await UI.refresh();if(current())await pool(kind);};
+    $('#poolRefresh').onclick=()=>{UI.archiveVisible?.clear();return refresh().catch(e=>UI.toast(e.message,true));};
+    $('#poolPrev').onclick=()=>{page--;drawPool(kind,canArchive);}; $('#poolNext').onclick=()=>{page++;drawPool(kind,canArchive);};
     $$('[data-pool-history]').forEach(b=>b.onclick=()=>history(b.dataset.poolHistory));
-    $$('[data-pool-claim]').forEach(b=>b.onclick=async()=>{b.disabled=true;try {await DB.claimClient(b.dataset.poolClaim);await UI.refresh();await pool(kind);UI.toast('领取成功，可在客户列表查看');}catch(e){UI.toast(e.message,1);await UI.refresh();await pool(kind);}});
+    $$('[data-pool-claim]').forEach(b=>b.onclick=async()=>{b.disabled=true;try {await DB.claimClient(b.dataset.poolClaim);await refresh();UI.toast('领取成功，可在客户列表查看');}catch(e){UI.toast(e.message,1);await refresh().catch(error=>UI.toast(error.message,true));}});
     if(!useBatch)return;
     UI.bindBatch({selected,ids:list.map(c=>c.id),pageIds:paged.map(c=>c.id)});
     $$('[data-batch-action]').forEach(button=>button.onclick=()=>{
@@ -85,7 +91,7 @@
           const result=DB.chk(await DB.t('clients').update({owner_id:values.owner}).eq('id',id).is('owner_id',null).select('id').maybeSingle());
           if(!result)throw Error('客户已被领取或归属发生变化');
         },
-        complete:async done=>{done.forEach(item=>selected.delete(item.id));await UI.refresh();await pool(kind);}
+        complete:async done=>{done.forEach(item=>selected.delete(item.id));await refresh();}
       });
     });
   }
@@ -93,7 +99,7 @@
   const shell=UI.shell;
   UI.shell=(inner,active)=>shell(inner,active).replace(/(<a href="#\/pool"[^>]*>[\s\S]*?<\/a>)/,`$1<a href="#/second-pool" class="${active==='second-pool'?'on':''}">第二公海 <small>Returned</small></a>`);
   const detail=UI.views.client.render;
-  UI.views.client.render=async id=>{await detail(id);const c=UI.CLIENTS.find(x=>x.id===id),target=document.querySelector('.hero .quick');if(!c||!target)return;
+  UI.views.client.render=async id=>{const current=(UI.viewCurrent?.() || (() => true));await detail(id);if(!current())return;const c=UI.CLIENTS.find(x=>x.id===id),target=document.querySelector('.hero .quick');if(!c||!target)return;
     if(c.owner_id&&(UI.ME.role==='admin'||c.owner_id===UI.ME.id)&&!UI.isInvalid(c)){const b=document.createElement('button');b.className='btn ghost';b.textContent='退回第二公海';b.onclick=()=>release(c);target.append(b);}
     const b=document.createElement('button');b.className='btn ghost';b.textContent='领取 / 退回记录';b.onclick=()=>history(id);target.append(b);
   };

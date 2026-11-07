@@ -7,7 +7,7 @@
   const PRI = { A: 0, B: 1, C: 2, D: 3, 'A+': 4 };
 
   function filtered(list) {
-    const q = (F.q || '').toLowerCase().trim(), t = UI.today();
+    const q = (F.q || '').toLowerCase().trim(), t = UI.today(), week = F.due === 'week' ? UI.today(7) : '';
     return list.filter(c => (UI.ME.role === 'admin' || c.owner_id === UI.ME.id)
       && (F.group === 'invalid' || F.status === '无效' || F.attention === '无效' ? UI.isInvalid(c) : !UI.isInvalid(c))
       && (!F.attention || UI.attention(c) === F.attention) && (!F.email_due || UI.emailDue(c))
@@ -16,7 +16,7 @@
       && (!F.product || (c.products || []).includes(F.product)) && (!F.priority || c.priority === F.priority)
       && (!F.type || c.customer_type === F.type) && (UI.ME.role !== 'admin' || !F.owner || (F.owner === '_none' ? !c.owner_id : c.owner_id === F.owner))
       && (!F.status || (F.status === '无效' ? UI.isInvalid(c) : c.status === F.status)) && (!F.tag || (c.tags || []).includes(F.tag))
-      && (!F.due || (F.due === 'overdue' ? (c.next_follow_up && c.next_follow_up < t) : F.due === 'today' ? c.next_follow_up === t : F.due === 'week' ? (c.next_follow_up && c.next_follow_up <= UI.today(7)) : !c.next_follow_up)));
+      && (!F.due || (F.due === 'overdue' ? (c.next_follow_up && c.next_follow_up < t) : F.due === 'today' ? c.next_follow_up === t : F.due === 'week' ? (c.next_follow_up && c.next_follow_up <= week) : !c.next_follow_up)));
   }
   function sorted(list) {
     const k = SORT.k, d = SORT.d;
@@ -27,10 +27,19 @@
   UI.filtered = () => sorted(filtered(UI.CLIENTS));
   UI.setFilters = o => { Object.keys(F).forEach(k => delete F[k]); Object.assign(F, o); PAGE = 1; sessionStorage.setItem('fcrm_filters', JSON.stringify(F)); };
 
+  const savedFilters = UI.viewRead?.(() => DB.listSavedFilters()) || (() => DB.listSavedFilters());
+  const archiveVisible = () => (UI.archiveVisible?.() || DB.canDeleteClients()).catch(() => false);
+
   // ---------------- LIST ----------------
   async function list() {
-    const admin = UI.ME.role === 'admin', C2 = UI.CLIENTS.filter(c => admin || c.owner_id === UI.ME.id);
-    const [saved, canDelete] = await Promise.all([DB.listSavedFilters(), deleteAllowed()]);
+    const current = (UI.viewCurrent?.() || (() => true));
+    const [saved, canDelete] = await Promise.all([savedFilters(), archiveVisible()]);
+    if (!current()) return;
+    const C2 = UI.CLIENTS.filter(c => UI.ME.role === 'admin' || c.owner_id === UI.ME.id);
+    drawList(C2, saved, canDelete);
+  }
+  function drawList(C2, saved, canDelete) {
+    const admin = UI.ME.role === 'admin';
     const states = uniq(C2.filter(c => !F.country || c.country === F.country).map(c => c.state)), tags = uniq(C2.flatMap(c => c.tags || []));
     const th = (k, l) => `<th class="sortable ${SORT.k === k ? 'on' : ''}" data-k="${k}">${l}${SORT.k === k ? (SORT.d > 0 ? ' ▲' : ' ▼') : ''}</th>`;
     UI.render(`
@@ -62,6 +71,7 @@
       <div class="pager" id="pager"></div>`, 'list');
     draw();
     let searchTimer;
+    const current = (UI.viewCurrent?.() || (() => true));
     const bind = (id, k) => { const el = $('#' + id); if (!el) return;
       const update = () => {
         F[k] = el.value; PAGE = 1;
@@ -72,23 +82,23 @@
         }
         draw();
       };
-      if (id === 'fq') el.oninput = () => { F[k] = el.value; PAGE = 1; clearTimeout(searchTimer); searchTimer = setTimeout(() => { if ($('#rows')) draw(); }, 160); };
+      if (id === 'fq') el.oninput = () => { F[k] = el.value; PAGE = 1; clearTimeout(searchTimer); searchTimer = setTimeout(() => { if (current() && $('#rows')) draw(); }, 160); };
       else el.onchange = update;
     };
     [['fq', 'q'], ['fcountry', 'country'], ['fstate', 'state'], ['fproduct', 'product'], ['fattention', 'attention'], ['fpriority', 'priority'], ['ftype', 'type'], ['fowner', 'owner'], ['fstatus', 'status'], ['fdue', 'due'], ['ftag', 'tag']].forEach(a => bind(...a));
-    $('#fclear').onclick = () => { Object.keys(F).forEach(k => delete F[k]); PAGE = 1; list(); };
+    $('#fclear').onclick = () => { Object.keys(F).forEach(k => delete F[k]); PAGE = 1; drawList(C2, saved, canDelete); };
     $$('.kpi').forEach(b => b.onclick = () => { F.status = b.dataset.st; PAGE = 1; $$('.kpi').forEach(k => k.classList.toggle('on', (F.status || '') === k.dataset.st)); draw(); });
     $$('th.sortable').forEach(t => t.onclick = () => {
       SORT = { k: t.dataset.k, d: SORT.k === t.dataset.k ? -SORT.d : 1 }; sessionStorage.setItem('fcrm_sort', JSON.stringify(SORT));
       $$('th.sortable').forEach(h => { const label = h.textContent.replace(/[▲▼]/g, '').trim(); h.classList.toggle('on', h.dataset.k === SORT.k); h.textContent = label + (h.dataset.k === SORT.k ? (SORT.d > 0 ? ' ▲' : ' ▼') : ''); });
       draw();
     });
-    $('#savef').onclick = async () => { const n = prompt('筛选名称 Name this filter（如：美国A未联系）'); if (n) { await DB.saveFilter(n, { ...F }); UI.toast('已保存'); list(); } };
-    $$('[data-sf]').forEach(a => a.onclick = e => { e.preventDefault(); const s = saved.find(x => x.id === a.dataset.sf); Object.keys(F).forEach(k => delete F[k]); Object.assign(F, s.filters); if(F.priority && !C.PRIORITIES.includes(F.priority)) delete F.priority; PAGE = 1; list(); });
-    $$('[data-sfdel]').forEach(b => b.onclick = async () => { await DB.deleteFilter(b.dataset.sfdel); list(); });
+    $('#savef').onclick = async () => { const n = prompt('筛选名称 Name this filter（如：美国A未联系）'); if (n) { await DB.saveFilter(n, { ...F }); savedFilters.clear?.(); UI.toast('已保存'); list(); } };
+    $$('[data-sf]').forEach(a => a.onclick = e => { e.preventDefault(); const s = saved.find(x => x.id === a.dataset.sf); Object.keys(F).forEach(k => delete F[k]); Object.assign(F, s.filters); if(F.priority && !C.PRIORITIES.includes(F.priority)) delete F.priority; PAGE = 1; drawList(C2, saved, canDelete); });
+    $$('[data-sfdel]').forEach(b => b.onclick = async () => { await DB.deleteFilter(b.dataset.sfdel); savedFilters.clear?.(); list(); });
     if($('#xcsv')) $('#xcsv').onclick = () => UI.exportRows(UI.filtered(), 'csv'); if($('#xxlsx')) $('#xxlsx').onclick = () => UI.exportRows(UI.filtered(), 'xlsx');
-    $('#selall').onchange = e => { const rows = pageRows(); rows.forEach(c => e.target.checked ? SEL.add(c.id) : SEL.delete(c.id)); draw(); };
-    if ($('#selectFiltered')) $('#selectFiltered').onclick = () => { SEL = new Set(UI.filtered().map(c => c.id)); draw(); };
+    $('#selall').onchange = e => { const rows = $$('#rows [data-sel]'); rows.forEach(cb => e.target.checked ? SEL.add(cb.dataset.sel) : SEL.delete(cb.dataset.sel)); syncSelection(rows); };
+    if ($('#selectFiltered')) $('#selectFiltered').onclick = () => { SEL = new Set(UI.filtered().map(c => c.id)); syncSelection(); };
     if ($('#b_delete')) $('#b_delete').onclick = () => removeClients(UI.CLIENTS.filter(c => SEL.has(c.id)));
     if($('#b_release'))$('#b_release').onclick = () => {
       const chosen=UI.CLIENTS.filter(c=>SEL.has(c.id));
@@ -99,7 +109,7 @@
         complete:async done=>{done.forEach(item=>SEL.delete(item.id));await UI.refresh();await list();}
       });
     };
-    $('#b_clear').onclick = () => { SEL.clear(); draw(); };
+    $('#b_clear').onclick = () => { SEL.clear(); syncSelection(); };
     if($('#b_export')) $('#b_export').onclick = () => UI.exportRows(UI.CLIENTS.filter(c => SEL.has(c.id)), 'xlsx');
     $('#b_mail').onclick = () => UI.mailCompose([...SEL]);
     $('#b_apply').onclick = async () => {
@@ -139,10 +149,23 @@
     } catch (e) { UI.toast(e.message, 1); }
     finally { if (button && button.isConnected) { button.disabled = false; button.textContent = detailButton ? '删除（移入回收站）' : '批量删除（移入回收站）'; } }
   }
-  const pageRows = () => UI.filtered().slice((PAGE - 1) * PER, PAGE * PER);
+  function syncSelection(boxes = $$('#rows [data-sel]')) {
+    let checked = 0;
+    for (const box of boxes) {
+      box.checked = SEL.has(box.dataset.sel);
+      box.closest('tr').classList.toggle('sel', box.checked);
+      if (box.checked) checked++;
+    }
+    $('#bulk').hidden = !SEL.size;
+    $('#selc').textContent = '已选 ' + SEL.size + ' 家';
+    $('#selall').checked = boxes.length > 0 && checked === boxes.length;
+    $('#selall').indeterminate = checked > 0 && checked < boxes.length;
+  }
   function draw() {
     sessionStorage.setItem('fcrm_filters', JSON.stringify(F));
-    const all = UI.filtered(), rows = all.slice((PAGE - 1) * PER, PAGE * PER), admin = UI.ME.role === 'admin', pages = Math.max(1, Math.ceil(all.length / PER));
+    const all = UI.filtered(), pages = Math.max(1, Math.ceil(all.length / PER)), admin = UI.ME.role === 'admin';
+    PAGE = Math.min(PAGE, pages);
+    const rows = all.slice((PAGE - 1) * PER, PAGE * PER);
     const visibleIds=new Set(all.map(c=>c.id));
     for(const id of SEL) if(!visibleIds.has(id)) SEL.delete(id);
     $('#cnt').innerHTML = `共 <b>${all.length}</b> 家客户 <small>${all.length} clients</small>`;
@@ -160,9 +183,9 @@
       <td data-l="当地时间">${lt ? `<span class="lt ${lt.work ? 'on' : ''}">${esc(lt.text)}</span>` : ''}</td></tr>`; }).join('') || `<tr><td colspan="11" class="empty">没有符合条件的客户 No clients match</td></tr>`;
     UI.bindAttention();
     $$('#rows tr[data-id]').forEach(tr => tr.onclick = e => { if (e.target.closest('a,input,select,button')) return; location.hash = '#/client/' + tr.dataset.id; });
-    $$('[data-sel]').forEach(cb => cb.onchange = () => { cb.checked ? SEL.add(cb.dataset.sel) : SEL.delete(cb.dataset.sel); draw(); });
+    $$('[data-sel]').forEach(cb => cb.onchange = () => { cb.checked ? SEL.add(cb.dataset.sel) : SEL.delete(cb.dataset.sel); syncSelection(); });
     const ft = $('#ftog'); if (ft) ft.onclick = () => { UI._fopen = !UI._fopen; ft.parentElement.classList.toggle('open', UI._fopen); };
-    $('#bulk').hidden = !SEL.size; $('#selc').textContent = `已选 ${SEL.size} 家`; $('#selall').checked = rows.length && rows.every(c => SEL.has(c.id));
+    syncSelection();
     $('#pager').innerHTML = pages > 1 ? `<button class="ghost sm" ${PAGE <= 1 ? 'disabled' : ''} id="pprev">‹ 上一页</button> 第 ${PAGE}/${pages} 页 <button class="ghost sm" ${PAGE >= pages ? 'disabled' : ''} id="pnext">下一页 ›</button>` : '';
     if ($('#pprev')) { $('#pprev').onclick = () => { PAGE--; draw(); }; $('#pnext').onclick = () => { PAGE++; draw(); }; }
   }
@@ -187,9 +210,11 @@
   const kv = (label, val) => `<div class="kv"><span>${label}</span><div>${val || '<em class="muted">—</em>'}</div></div>`;
   let TAB = 'log';
   async function detail(id) {
-    let c; try { c = await DB.getClient(id); } catch (e) { return UI.render(`<div class="card pad">${esc(e.message)} <a href="#/list">返回</a></div>`, 'list'); }
+    const current = (UI.viewCurrent?.() || (() => true)), permission = archiveVisible();
+    let c; try { c = await DB.getClient(id); } catch (e) { if (!current()) return; return UI.render(`<div class="card pad">${esc(e.message)} <a href="#/list">返回</a></div>`, 'list'); }
     const admin = UI.ME.role === 'admin', [logs, quotes, samples, audit, grades] = await Promise.all([DB.listLogs(id), DB.listQuotes(id), DB.listSamples(id), DB.listAudit({ client_id: id, limit: 100 }),DB.mode==='demo'?Promise.resolve([]):DB.init().rpc('crm_priority_history',{p_client:id}).then(r=>DB.chk(r))]);
-    const canDelete = await deleteAllowed();
+    const canDelete = await permission;
+    if (!current()) return;
     const usWarn = c.country === 'USA' && (c.products || []).some(p => C.US_EXCLUDED.includes(p)), lt = UI.localTime(c);
     const ids = UI.filtered().map(x => x.id), i = ids.indexOf(id), prev = ids[i - 1], next = ids[i + 1];
     const wa = UI.wa(c.whatsapp || c.company_phone, c);

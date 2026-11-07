@@ -15,11 +15,18 @@
     const cc = UI.dial(c); if (!cc) return d; if (cc === '1') return d.length === 11 && d[0] === '1' ? '+' + d : '+1' + d; return '+' + cc + d.replace(/^0/, ''); };
   UI.tel = (p, c) => 'tel:' + UI.e164(p, c);
   UI.wa = (p, c, text) => { const n = UI.e164(p, c).replace(/\D/g, ''); return n ? `https://wa.me/${n}${text ? '?text=' + encodeURIComponent(text) : ''}` : ''; };
+  const localTimes = new Map();
+  let localMinute = -1;
   UI.localTime = c => { const tz = C.tzFor(c); if (!tz) return null; const now = new Date();
+    const minute = Math.floor(now.getTime() / 60000);
+    if (minute !== localMinute) { localTimes.clear(); localMinute = minute; }
+    if (localTimes.has(tz)) return localTimes.get(tz);
     const t = now.toLocaleTimeString('zh-CN', { timeZone: tz, hour: '2-digit', minute: '2-digit', hour12: false });
     const wd = now.toLocaleDateString('zh-CN', { timeZone: tz, weekday: 'short' }); const h = +now.toLocaleString('en-US', { timeZone: tz, hour: 'numeric', hour12: false }) % 24;
     const day = now.toLocaleDateString('en-US', { timeZone: tz, weekday: 'short' }); const work = h >= 9 && h < 17 && !['Sat', 'Sun'].includes(day);
-    return { text: `${wd} ${t}`, work, tz }; };
+    const value = { text: wd + ' ' + t, work, tz };
+    localTimes.set(tz, value);
+    return value; };
   UI.ltBadge = c => { const l = UI.localTime(c); return l ? `<span class="lt ${l.work ? 'on' : ''}" title="${esc(l.tz)}">🕘 当地 ${esc(l.text)}${l.work ? ' · 工作时间' : ''}</span>` : ''; };
   UI.prBadge = p => p ? `<span class="pri pri-${esc(p.replace('+', 'p'))}" title="${esc(C.PRIORITY_DEFINITIONS?.[p] || '旧等级，等待按新定义重新核实')}">${esc(p)} ${esc(C.PRIORITY_NAMES?.[p] || '旧等级待复核')}</span>` : '<span class="muted">待分级</span>';
   UI.gradeGuide = () => `<section aria-label="优先级解释" style="padding:10px 14px;font-size:13px;line-height:1.65"><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:5px 16px">${C.PRIORITIES.map(p=>`<div><b>${p} ${C.PRIORITY_NAMES[p]}</b>：${esc(C.PRIORITY_DEFINITIONS[p])}</div>`).join('')}</div><small class="muted">等级不代表成交、采购意向或官方进口认证；进口证据另行记录。美国排除所有地板（含SPC），仅开发墙板、格栅、木饰面与吸音板。</small></section>`;
@@ -41,7 +48,10 @@
   UI.loadXLSX = () => window.XLSX ? Promise.resolve() : new Promise((ok, no) => { const s = document.createElement('script'); s.src = 'https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js'; s.onload = ok; s.onerror = () => no(new Error('Excel 库加载失败（需联网），请用 CSV')); document.head.appendChild(s); });
   UI.modal = (html, onMount) => { const m = document.createElement('div'); m.className = 'modal'; m.innerHTML = `<div class="modal-box card">${html}<button class="ghost sm mclose" aria-label="close">✕</button></div>`;
     document.body.appendChild(m); const close = () => m.remove(); m.querySelector('.mclose').onclick = close; m.onclick = e => { if (e.target === m) close(); }; if (onMount) onMount(m, close); return close; };
-  UI.overdue = list => list.filter(c => c.next_follow_up && c.next_follow_up < UI.today() && !(UI.isInvalid ? UI.isInvalid(c) : c.status === '无效') && c.status !== '成交');
+  UI.overdue = list => {
+    const today = UI.today();
+    return list.filter(c => c.next_follow_up && c.next_follow_up < today && !(UI.isInvalid ? UI.isInvalid(c) : c.status === '无效') && c.status !== '成交');
+  };
 
   // ---------- shell ----------
   const NAV = [
@@ -71,6 +81,28 @@
   };
   UI.render = (inner, active) => { $('#app').innerHTML = UI.shell(inner, active); UI.bindShell(); window.scrollTo(0, 0); };
 
+  // Cache read-only view data briefly; writes still use the server's checks.
+  UI.viewRead = load => {
+    let user, expires = 0, request;
+    const read = () => {
+      if (user === UI.ME && request && Date.now() < expires) return request;
+      user = UI.ME;
+      expires = Date.now() + 30000;
+      const next = request = Promise.resolve().then(load);
+      next.catch(() => { if (request === next) read.clear(); });
+      return next;
+    };
+    read.clear = () => { request = null; expires = 0; };
+    return read;
+  };
+  UI.archiveVisible = UI.viewRead(() => DB.canDeleteClients());
+
+  // Request guards keep an earlier slow response from replacing a newer view.
+  UI.viewCurrent = () => {
+    const hash = location.hash, user = UI.ME, version = navigation;
+    return () => hash === location.hash && user === UI.ME && version === navigation;
+  };
+
   // ---------- login ----------
   function viewLogin() {
     $('#app').innerHTML = `<div class="login"><div class="card login-card">
@@ -85,16 +117,45 @@
   }
   const DIRECTORY_TTL=30000; let directoryLoadedAt=0,directoryRequest=null,directoryEpoch=0; UI.invalidateDirectory=()=>{directoryLoadedAt=0;directoryEpoch++;directoryRequest=null;}; UI.refresh=async({force=true}={})=>{if(!force&&directoryLoadedAt&&Date.now()-directoryLoadedAt<DIRECTORY_TTL)return; if(directoryRequest)return directoryRequest; const epoch=directoryEpoch; directoryRequest=Promise.all([DB.listUsers(),DB.listClients()]).then(([users,clients])=>{if(epoch===directoryEpoch){UI.USERS=users;UI.CLIENTS=clients;directoryLoadedAt=Date.now();}}).finally(()=>{directoryRequest=null;}); return directoryRequest;};
 
-  let navigation=0; async function route() { const currentNavigation=++navigation;
+  let navigation = 0;
+  async function route() {
+    const currentNavigation = ++navigation, hash = location.hash || '#/home';
+    const main = $('.app-content main');
+    const links = UI.$$('.app-sidebar a[href^="#/"], .tabbar a[href^="#/"]');
+    const section = hash.split('/').slice(0, 2).join('/');
+    const target = links.some(link => link.getAttribute('href') === section) ? section : null;
+    if (target) for (const link of links) {
+      const active = link.getAttribute('href') === target;
+      link.classList.toggle('on', active);
+      if (active) link.setAttribute('aria-current', 'page'); else link.removeAttribute('aria-current');
+    }
+    if (main) main.setAttribute('aria-busy', 'true');
+    let pending;
+    const loading = setTimeout(() => {
+      if (currentNavigation === navigation && main?.isConnected) {
+        const indicator = document.createElement('div');
+        indicator.className = 'info';
+        indicator.setAttribute('role', 'status');
+        indicator.textContent = '正在加载页面…';
+        main.prepend(indicator);
+        pending = indicator;
+      }
+    }, 120);
     try {
       if (!UI.ME) UI.ME = await DB.currentUser();
+      if (currentNavigation !== navigation) return;
       if (!UI.ME) return viewLogin();
       if(!directoryLoadedAt)await UI.refresh({force:false});else UI.refresh({force:false}).catch(e=>console.warn('Background directory refresh unavailable'));      if (currentNavigation !== navigation) return;
       const h = location.hash || '#/home', [, name, arg] = h.match(/^#\/([^/?]+)\/?([^?]*)/) || [, 'home'];
       const v = UI.views[name] || UI.views.home;
       if (v.admin && UI.ME.role !== 'admin') return UI.views.home.render();
       await v.render(decodeURIComponent(arg || ''));
-    } catch (e) { console.error(e); $('#app').innerHTML = `<div class="card pad" style="margin:40px">出错了 Error: ${esc(e.message)} <p><a href="#/home" onclick="location.reload()">重新加载</a></p></div>`; }
+    } catch (e) { if (currentNavigation !== navigation) return; console.error(e); $('#app').innerHTML = `<div class="card pad" style="margin:40px">出错了 Error: ${esc(e.message)} <p><a href="#/home" onclick="location.reload()">重新加载</a></p></div>`; }
+    finally {
+      clearTimeout(loading);
+      pending?.remove();
+      if (currentNavigation === navigation) main?.removeAttribute('aria-busy');
+    }
   }
   UI.route = route;
   window.addEventListener('hashchange', route);

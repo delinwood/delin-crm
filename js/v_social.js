@@ -7,8 +7,52 @@
  let rows=[],cfg={},query='',owner='',stage='',quality='',tab='active',page=0;
  const selected=new Set();
  const admin=()=>UI.ME.role==='admin'&&UI.ME.username==='boss',manage=()=>admin()||cfg.operator_id===UI.ME.id;
- const call=async(name,args)=>{if(DB.mode==='demo')throw Error('社媒共享表需要连接正式数据库');return DB.chk(await DB.init().rpc(name,args));};
- async function load(){cfg=DB.chk(await DB.t('crm_social_settings').select('*').single());rows=[];for(let from=0;;from+=500){const part=DB.chk(await DB.t('crm_social_leads').select('*').order('updated_at',{ascending:false}).order('id').range(from,from+499));rows.push(...part.filter(r=>(r.data.lead_channel||'social')===channel));if(part.length<500)break;}}
+ const call=async(name,args)=>{
+  if(DB.mode==='demo')throw Error('社媒共享表需要连接正式数据库');
+  const key=channel;
+  const result=DB.chk(await DB.init().rpc(name,args));
+  if(name==='crm_social_config'){cache.clear();readSettings.clear?.();}else cache.delete(key);
+  return result;
+ };
+ const cache = new Map();
+ const loadSettings = () => DB.t('crm_social_settings').select('*').single().then(r=>DB.chk(r));
+ const readSettings = UI.viewRead?.(loadSettings) || loadSettings;
+ let cacheUser, readVersion = 0;
+ async function loadRows(key) {
+  const result = [];
+  for (let from=0;;from+=500) {
+   let request=DB.t('crm_social_leads').select('*');
+   request=key==='social'
+    ?request.or('data->>lead_channel.eq.social,data->>lead_channel.is.null,data->>lead_channel.eq.')
+    :request.eq('data->>lead_channel',key);
+   const part=DB.chk(await request.order('updated_at',{ascending:false}).order('id').range(from,from+499));
+   result.push(...part);
+   if(part.length<500)return result;
+  }
+ }
+ async function render({force=false}={}) {
+  const current=(UI.viewCurrent?.() || (() => true)), user=UI.ME, key=channel, version=++readVersion;
+  if(cacheUser!==user){cache.clear();cacheUser=user;}
+  const cached=cache.get(key);
+  if(!force&&cached&&Date.now()-cached.at<30000){
+   ({rows,cfg}=cached); draw(); return;
+  }
+  if(force)cache.delete(key);
+  const [nextRows,nextCfg]=await Promise.all([
+   loadRows(key),
+   readSettings()
+  ]);
+  if(!current()||version!==readVersion||channel!==key)return;
+  rows=nextRows;cfg=nextCfg;
+  cache.set(key,{rows,cfg,at:Date.now()});draw();
+ }
+ function refreshCurrent(){
+  if((location.hash||'').split('?')[0]==='#/'+channel)return render({force:true});
+ }
+ function reload(){
+  readSettings.clear?.();
+  return render({force:true}).catch(e=>UI.toast(e.message,true));
+ }
  const status=r=>r.trashed_at?'trash':r.transferred_at?'pool':'active';
  const noteStyle=document.createElement('style');noteStyle.textContent=`
  .social-note-trigger{display:block;width:100%;min-width:190px;max-width:300px;padding:10px 12px!important;text-align:left!important;background:#f5f8fc!important;border:1px solid #e0e8f1!important;border-radius:10px!important;color:#243b53!important;cursor:pointer}
@@ -40,10 +84,10 @@
  document.addEventListener('scroll',e=>{if(notePopup&&!notePopup.hidden&&!notePopup.contains(e.target))hideNote();},true);
  function noteCell(r){const d=r.data;return `<td><button class="social-note-trigger" data-note="${esc(r.id)}" aria-controls="socialNotePreview" aria-expanded="false" title="悬停或点击查看完整备注、编辑人和编辑时间"><span class="social-note-summary">${esc(d.notes||d.evidence||'暂无备注，点击查看或编辑')}</span><span class="social-note-meta">${esc(UI.userName(r.updated_by))} · ${esc(new Date(r.updated_at).toLocaleString('zh-CN'))}<br>悬停预览 · 点击查看 / 编辑</span></button>${r.trashed_at?`<p class="small">回收原因：${esc(r.trash_reason)}</p>`:''}</td>`;}
  function edit(r){const d=r?.data||{},fields=[['company_name','公司 / 客户名称'],['country','国家'],['contact_name','联系人'],['phone','电话 / WhatsApp'],['email','邮箱'],['website','网站'],['platform',channel==='exhibition'?'展会名称 / 届次 / 展位':channel==='international'?'平台 / 店铺 / 询盘来源':'来源平台'],['social_url','来源主页 / 询盘链接'],['products','销售产品'],['tags','标签（逗号分隔，可自行填写）'],['next_date','下次跟进日期']];
- UI.modal(`<h2>${r?'编辑':'新增'}${esc(label())}</h2><p>团队共享资料；保存时检查版本，避免覆盖同事修改。</p><form id="socialEdit"><div class="grid2">${fields.map(([k,l])=>`<label>${l}<input name="${k}" type="${k==='next_date'?'date':'text'}" maxlength="${k==='company_name'?200:1000}" value="${esc(d[k]||'')}" ${k==='company_name'?'required':''}></label>`).join('')}<label>开发进度<select name="progress">${progress.map(x=>opt(x,x,d.progress||'未分配')).join('')}</select></label><label>客户精准度<select name="precision">${precision.map(x=>opt(x,x,d.precision||'待核实')).join('')}</select></label></div><label>精准度依据 / 核实结果<textarea name="evidence" maxlength="4000">${esc(d.evidence||'')}</textarea></label><label>共享备注 / 开发情况<textarea name="notes" maxlength="8000">${esc(d.notes||'')}</textarea></label><button class="primary">保存</button><p role="status"></p></form>`,(m,close)=>{const f=m.querySelector('form');f.onsubmit=async e=>{e.preventDefault();const b=f.querySelector('button');b.disabled=true;try{await call('crm_social_save',{p_id:r?.id||null,p_version:r?.version||0,p_data:{...Object.fromEntries(new FormData(f)),lead_channel:r?.data.lead_channel||channel}});close();await render();UI.toast('已保存共享资料');}catch(e){f.querySelector('[role=status]').textContent=e.message;b.disabled=false;}};});}
- function configure(){UI.modal(`<h2>运营和分配权限</h2><p>所有启用账号均可编辑社媒资料。仅运营和老板可分配；只可分配给下方勾选的业务员。</p><form id="socialConfig"><label>运营账号<select name="operator">${opt('','未指定',cfg.operator_id)}${UI.USERS.filter(u=>u.active).map(u=>opt(u.id,`${u.full_name} (${u.username})`,cfg.operator_id)).join('')}</select></label><label>可分配的业务员</label>${UI.USERS.filter(u=>u.active&&u.role==='sales').map(u=>`<label><input type="checkbox" name="assignee" value="${esc(u.id)}" ${(cfg.assignee_ids||[]).includes(u.id)?'checked':''}> ${esc(u.full_name)} (${esc(u.username)})</label>`).join('')}<button class="primary">保存权限</button><p role="status"></p></form>`,(m,close)=>{const f=m.querySelector('form');f.onsubmit=async e=>{e.preventDefault();try{await call('crm_social_config',{p_operator:f.operator.value||null,p_assignees:[...new FormData(f).getAll('assignee')]});close();await render();}catch(e){f.querySelector('[role=status]').textContent=e.message;}};});}
- function assign(r){UI.modal(`<h2>分配社媒客户</h2><p>${esc(r.data.company_name)}</p><form><select name="owner">${opt('','取消分配',r.assignee_id)}${UI.USERS.filter(u=>u.active&&(cfg.assignee_ids||[]).includes(u.id)).map(u=>opt(u.id,`${u.full_name} (${u.username})`,r.assignee_id)).join('')}</select><p>未出现业务员时，请老板先设置“运营和分配权限”。</p><button class="primary">确认分配</button><p role="status"></p></form>`,(m,close)=>{const f=m.querySelector('form');f.onsubmit=async e=>{e.preventDefault();try{await call('crm_social_assign',{p_id:r.id,p_version:r.version,p_owner:f.owner.value||null});close();await render();}catch(e){f.querySelector('[role=status]').textContent=e.message;}};});}
- function move(r,kind){const pool=kind==='pool';if(!pool&&!admin())return UI.toast('仅老板可移入回收站',true);UI.modal(`<h2>${pool?'有价值 · 转入第二公海':'无价值 · 移入回收站'}</h2><p>${esc(r.data.company_name)}。${pool?'保留社媒来源和备注，转为第二公海客户供团队领取。':'请说明原因，保留全部资料待老板审查；仅老板可执行回收或删除。'}</p><form><label>原因<textarea name="reason" minlength="2" maxlength="2000" required></textarea></label><button class="primary">确认转移</button><p role="status"></p></form>`,(m,close)=>{const f=m.querySelector('form');f.onsubmit=async e=>{e.preventDefault();const b=f.querySelector('button');b.disabled=true;try{await call(pool?'crm_social_release':'crm_social_trash',{p_id:r.id,p_version:r.version,...(pool?{p_reason:f.reason.value}:{p_action:'trash',p_reason:f.reason.value})});close();await UI.refresh();await render();UI.toast(pool?'已转第二公海':'已移入回收站，等待老板审查');}catch(e){f.querySelector('[role=status]').textContent=e.message;b.disabled=false;}};});}
+ UI.modal(`<h2>${r?'编辑':'新增'}${esc(label())}</h2><p>团队共享资料；保存时检查版本，避免覆盖同事修改。</p><form id="socialEdit"><div class="grid2">${fields.map(([k,l])=>`<label>${l}<input name="${k}" type="${k==='next_date'?'date':'text'}" maxlength="${k==='company_name'?200:1000}" value="${esc(d[k]||'')}" ${k==='company_name'?'required':''}></label>`).join('')}<label>开发进度<select name="progress">${progress.map(x=>opt(x,x,d.progress||'未分配')).join('')}</select></label><label>客户精准度<select name="precision">${precision.map(x=>opt(x,x,d.precision||'待核实')).join('')}</select></label></div><label>精准度依据 / 核实结果<textarea name="evidence" maxlength="4000">${esc(d.evidence||'')}</textarea></label><label>共享备注 / 开发情况<textarea name="notes" maxlength="8000">${esc(d.notes||'')}</textarea></label><button class="primary">保存</button><p role="status"></p></form>`,(m,close)=>{const f=m.querySelector('form');f.onsubmit=async e=>{e.preventDefault();const b=f.querySelector('button');b.disabled=true;try{await call('crm_social_save',{p_id:r?.id||null,p_version:r?.version||0,p_data:{...Object.fromEntries(new FormData(f)),lead_channel:r?.data.lead_channel||channel}});close();await refreshCurrent();UI.toast('已保存共享资料');}catch(e){f.querySelector('[role=status]').textContent=e.message;b.disabled=false;}};});}
+ function configure(){UI.modal(`<h2>运营和分配权限</h2><p>所有启用账号均可编辑社媒资料。仅运营和老板可分配；只可分配给下方勾选的业务员。</p><form id="socialConfig"><label>运营账号<select name="operator">${opt('','未指定',cfg.operator_id)}${UI.USERS.filter(u=>u.active).map(u=>opt(u.id,`${u.full_name} (${u.username})`,cfg.operator_id)).join('')}</select></label><label>可分配的业务员</label>${UI.USERS.filter(u=>u.active&&u.role==='sales').map(u=>`<label><input type="checkbox" name="assignee" value="${esc(u.id)}" ${(cfg.assignee_ids||[]).includes(u.id)?'checked':''}> ${esc(u.full_name)} (${esc(u.username)})</label>`).join('')}<button class="primary">保存权限</button><p role="status"></p></form>`,(m,close)=>{const f=m.querySelector('form');f.onsubmit=async e=>{e.preventDefault();try{await call('crm_social_config',{p_operator:f.operator.value||null,p_assignees:[...new FormData(f).getAll('assignee')]});close();await refreshCurrent();}catch(e){f.querySelector('[role=status]').textContent=e.message;}};});}
+ function assign(r){UI.modal(`<h2>分配社媒客户</h2><p>${esc(r.data.company_name)}</p><form><select name="owner">${opt('','取消分配',r.assignee_id)}${UI.USERS.filter(u=>u.active&&(cfg.assignee_ids||[]).includes(u.id)).map(u=>opt(u.id,`${u.full_name} (${u.username})`,r.assignee_id)).join('')}</select><p>未出现业务员时，请老板先设置“运营和分配权限”。</p><button class="primary">确认分配</button><p role="status"></p></form>`,(m,close)=>{const f=m.querySelector('form');f.onsubmit=async e=>{e.preventDefault();try{await call('crm_social_assign',{p_id:r.id,p_version:r.version,p_owner:f.owner.value||null});close();await refreshCurrent();}catch(e){f.querySelector('[role=status]').textContent=e.message;}};});}
+ function move(r,kind){const pool=kind==='pool';if(!pool&&!admin())return UI.toast('仅老板可移入回收站',true);UI.modal(`<h2>${pool?'有价值 · 转入第二公海':'无价值 · 移入回收站'}</h2><p>${esc(r.data.company_name)}。${pool?'保留社媒来源和备注，转为第二公海客户供团队领取。':'请说明原因，保留全部资料待老板审查；仅老板可执行回收或删除。'}</p><form><label>原因<textarea name="reason" minlength="2" maxlength="2000" required></textarea></label><button class="primary">确认转移</button><p role="status"></p></form>`,(m,close)=>{const f=m.querySelector('form');f.onsubmit=async e=>{e.preventDefault();const b=f.querySelector('button');b.disabled=true;try{await call(pool?'crm_social_release':'crm_social_trash',{p_id:r.id,p_version:r.version,...(pool?{p_reason:f.reason.value}:{p_action:'trash',p_reason:f.reason.value})});close();await UI.refresh();await refreshCurrent();UI.toast(pool?'已转第二公海':'已移入回收站，等待老板审查');}catch(e){f.querySelector('[role=status]').textContent=e.message;b.disabled=false;}};});}
  async function history(r){try{const logs=DB.chk(await DB.t('crm_social_events').select('*').eq('lead_id',r.id).order('at',{ascending:false}).limit(100));UI.modal(`<h2>修改与分配记录</h2><ul class="timeline">${logs.map(x=>`<li>${esc(new Date(x.at).toLocaleString('zh-CN'))} · ${esc(UI.userName(x.actor_id))} · ${esc(({edit:'修改',create:'新增',assign:'分配',second_pool:'第二公海',trash:'回收站',restore:'恢复'})[x.action]||x.action)}<details><summary>查看记录</summary><pre style="white-space:pre-wrap">${esc(JSON.stringify(x.detail,null,2))}</pre></details></li>`).join('')}</ul>`);}catch(e){UI.toast(e.message,1);}}
  function batch(action, visible){
   const items=visible.filter(r=>selected.has(r.id)).map(r=>({id:r.id,label:r.data.company_name,row:r}));
@@ -57,10 +101,10 @@
       if(action==='pool')return call('crm_social_release',{...keys,p_reason:values.reason.trim()});
       return call('crm_social_trash',{...keys,p_action:action,p_reason:values.reason?.trim()||null});
     },
-    complete:async done=>{done.forEach(item=>selected.delete(item.id));if(action==='pool')await UI.refresh();await render();}
+    complete:async done=>{done.forEach(item=>selected.delete(item.id));if(action==='pool')await UI.refresh();await refreshCurrent();}
   });
  }
- async function render(){hideNote();await load();const filtered=rows.filter(r=>status(r)===tab&&(!owner||(owner==='none'?!r.assignee_id:r.assignee_id===owner))&&(!stage||r.data.progress===stage)&&(!quality||r.data.precision===quality)&&JSON.stringify(r.data).toLowerCase().includes(query.toLowerCase()));page=Math.min(page,Math.max(0,Math.ceil(filtered.length/50)-1));
+ function draw(){hideNote();const term=query.toLowerCase();const filtered=rows.filter(r=>status(r)===tab&&(!owner||(owner==='none'?!r.assignee_id:r.assignee_id===owner))&&(!stage||r.data.progress===stage)&&(!quality||r.data.precision===quality)&&(!term||JSON.stringify(r.data).toLowerCase().includes(term)));page=Math.min(page,Math.max(0,Math.ceil(filtered.length/50)-1));
  const paged=filtered.slice(page*50,page*50+50);
  const selectable=filtered.filter(r=>tab==='trash'?admin():tab==='active'&&(manage()||r.assignee_id===UI.ME.id));
  const selectableIds=new Set(selectable.map(r=>r.id));
@@ -74,12 +118,12 @@
    $$('[data-batch-action]').forEach(b=>b.onclick=()=>batch(b.dataset.batchAction,selectable));
  }
  $$('[data-note]').forEach(b=>{const r=rows.find(r=>r.id===b.dataset.note);b.onmouseenter=()=>showNote(r,b);b.onmouseleave=deferHideNote;b.onfocus=()=>showNote(r,b);b.onblur=e=>{if(!notePopup?.contains(e.relatedTarget))deferHideNote();};b.onclick=()=>showNote(r,b);});
- $('#socialAdd').onclick=()=>edit();$('#socialRefresh').onclick=render;if(admin())$('#socialConfig').onclick=configure;
- for(const [id,set] of [['socialQuery',v=>query=v],['socialOwner',v=>owner=v],['socialStage',v=>stage=v],['socialQuality',v=>quality=v]])$('#'+id).onchange=e=>{set(e.target.value);page=0;render();};
- $$('[data-social-tab]').forEach(b=>b.onclick=()=>{tab=b.dataset.socialTab;selected.clear();page=0;render();});$('#socialPrev').onclick=()=>{page--;render();};$('#socialNext').onclick=()=>{page++;render();};
+ $('#socialAdd').onclick=()=>edit();$('#socialRefresh').onclick=reload;if(admin())$('#socialConfig').onclick=configure;
+ for(const [id,set] of [['socialQuery',v=>query=v],['socialOwner',v=>owner=v],['socialStage',v=>stage=v],['socialQuality',v=>quality=v]])$('#'+id).onchange=e=>{set(e.target.value);page=0;draw();};
+ $$('[data-social-tab]').forEach(b=>b.onclick=()=>{tab=b.dataset.socialTab;selected.clear();page=0;draw();});$('#socialPrev').onclick=()=>{page--;draw();};$('#socialNext').onclick=()=>{page++;draw();};
  for(const [key,fn] of [['edit',edit],['assign',assign],['history',history],['pool',r=>move(r,'pool')],['trash',r=>move(r,'trash')],['restore',r=>review(r,'restore')],['delete',r=>review(r,'delete')]])$$(`[data-${key}]`).forEach(b=>b.onclick=()=>fn(rows.find(r=>r.id===b.dataset[key])));
  }
- async function review(r,action){if(!confirm(action==='delete'?`永久删除“${r.data.company_name}”？客户资料不可恢复，保留操作审计。`:`恢复“${r.data.company_name}”至社媒共享表？`))return;try{await call('crm_social_trash',{p_id:r.id,p_version:r.version,p_action:action,p_reason:null});await render();}catch(e){UI.toast(e.message,1);}}
+ async function review(r,action){if(!confirm(action==='delete'?`永久删除“${r.data.company_name}”？客户资料不可恢复，保留操作审计。`:`恢复“${r.data.company_name}”至社媒共享表？`))return;try{await call('crm_social_trash',{p_id:r.id,p_version:r.version,p_action:action,p_reason:null});await refreshCurrent();}catch(e){UI.toast(e.message,1);}}
  for(const key of Object.keys(channels))UI.views[key]={render:()=>{if(channel!==key){channel=key;selected.clear();query=owner=stage=quality='';tab='active';page=0;}return render();}};
  const shell=UI.shell;UI.shell=(inner,active)=>shell(inner,active).replace(/(<a href="#\/list"[\s\S]*?<\/a>)/,`$1${Object.entries(channels).map(([key,name])=>`<a href="#/${key}" class="side-link ${active===key?'on':''}"><span class="side-icon">${key==='social'?'🤝':key==='exhibition'?'🎪':'🌐'}</span><span>${name}</span></a>`).join('')}`);
 })();
