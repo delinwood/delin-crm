@@ -2,7 +2,7 @@
   const { esc, opt, $, $$ } = UI;
   const row = c => `<li><a href="#/client/${esc(c.id)}"><b>${esc(c.company_name)}</b></a> ${UI.attentionBadge(c)} ${UI.prBadge(c.priority)} ${UI.stBadge(c.status)}
     <div class="muted small">${esc([c.state, c.country].filter(Boolean).join(', '))} · ${UI.dueBadge(c.next_follow_up) || '未设跟进'} ${UI.ltBadge(c)} ${UI.ME.role === 'admin' ? '· ' + esc(UI.userName(c.owner_id)) : ''}</div>
-    <div class="qa">${c.company_phone ? UI.link(UI.tel(c.company_phone, c), '📞', 'btn ghost sm') : ''}${c.company_email ? UI.link('mailto:' + c.company_email, '✉️', 'btn ghost sm') : ''}${UI.wa(c.whatsapp || c.company_phone, c) ? UI.link(UI.wa(c.whatsapp || c.company_phone, c), '💬', 'btn ghost sm') : ''}<a class="btn ghost sm" href="#/templates/${esc(c.id)}">✍️</a><a class="btn ghost sm" href="#/client/${esc(c.id)}">记录 ›</a></div></li>`;
+    <div class="qa">${c.company_phone ? UI.link(UI.tel(c.company_phone, c), '📞', 'btn ghost sm') : ''}${c.company_email ? UI.link('mailto:' + c.company_email, '✉️', 'btn ghost sm') : ''}${UI.wa(c.whatsapp || c.company_phone, c) ? UI.link(UI.wa(c.whatsapp || c.company_phone, c), '💬', 'btn ghost sm') : ''}<a class="btn ghost sm" href="#/templates/${esc(c.id)}">✍️</a><a class="btn ghost sm" href="#/client/${esc(c.id)}">记录 ›</a>${UI.chaseButton(c)}</div></li>`;
 
   async function home() {
     const me = UI.ME, admin = me.role === 'admin', t = UI.today();
@@ -26,9 +26,9 @@
         <a class="kpi" href="#/list" data-due="week"><b>${week.length}</b><span>7天内 This week</span></a>
         <a class="kpi" href="#/list" data-st="未联系"><b>${scope.filter(c => c.status === '未联系').length}</b><span>未联系 New leads</span></a>
         <div class="kpi"><b>${logs.length}</b><span>本周跟进 Logged (7d)</span></div></section>
-      <section class="card pad"><div class="sec-h"><h2>✉️ 每3天邮件跟进 <small>${emailDue.length} 家已到期</small></h2><a href="#/email-reminders">查看全部提醒 ›</a></div>
-        <p class="muted small">领取或新建自己的客户后3天提醒；登记一条邮件跟进后重新计时。无效客户停止提醒。仅在系统内提醒。</p>
-        <ul class="todo">${emailDue.slice(0, 15).map(row).join('') || '<li class="muted">暂无到期邮件跟进任务</li>'}</ul></section>
+      <section class="card pad"><div class="sec-h"><h2>✉️ 每7天追单提醒 <small>${emailDue.length} 家已到期</small></h2><a href="#/email-reminders">查看全部提醒 ›</a></div>
+        <p class="muted small">领取或新建自己的客户后开始计时，登记实际联系后重新计时。连续15天未联系或90天未收到已登记回复时，系统转入公海。</p>
+        <ul class="todo">${emailDue.slice(0, 15).map(row).join('') || '<li class="muted">暂无到期追单任务</li>'}</ul></section>
       <div class="grid3">
         <section class="card pad"><h2>🔴 逾期 + 今日 <small>Overdue & today</small></h2><ul class="todo">${[...over, ...today].slice(0, 30).map(row).join('') || '<li class="muted">🎉 没有逾期或今日任务</li>'}</ul></section>
         <section class="card pad"><h2>📅 未来7天 <small>Upcoming</small></h2><ul class="todo">${week.slice(0, 20).map(row).join('') || '<li class="muted">无</li>'}</ul>

@@ -34,7 +34,7 @@
     const states = uniq(C2.filter(c => !F.country || c.country === F.country).map(c => c.state)), tags = uniq(C2.flatMap(c => c.tags || []));
     const th = (k, l) => `<th class="sortable ${SORT.k === k ? 'on' : ''}" data-k="${k}">${l}${SORT.k === k ? (SORT.d > 0 ? ' ▲' : ' ▼') : ''}</th>`;
     UI.render(`
-      <div class="pagehead"><h1>${F.group === 'invalid' ? '无效客户' : F.email_due ? '邮件跟进提醒' : '客户列表'} <small>Clients</small></h1><div class="actions"><a class="btn ghost" href="#/invalid">无效客户</a><a class="btn ghost" href="#/email-reminders">邮件提醒</a><a class="btn primary" href="#/new">+ 新建客户</a></div></div>
+      <div class="pagehead"><h1>${F.group === 'invalid' ? '无效客户' : F.email_due ? '追单提醒' : '客户列表'} <small>Clients</small></h1><div class="actions"><a class="btn ghost" href="#/invalid">无效客户</a><a class="btn ghost" href="#/email-reminders">追单提醒</a><a class="btn primary" href="#/new">+ 新建客户</a></div></div>
       <section class="kpis">${[['全部 All', C2.length, '']].concat(C.STATUSES.map(s => [s[0], C2.filter(c => c.status === s[0]).length, s[0]])).map(k => `<button class="kpi ${(F.status || '') === k[2] ? 'on' : ''}" data-st="${esc(k[2])}"><b>${k[1]}</b><span>${esc(k[0])}</span></button>`).join('')}</section>
       <section class="card filters${UI._fopen ? ' open' : ''}"><button type="button" class="ghost ftoggle" id="ftog">筛选 Filters ${Object.keys(F).filter(k => F[k] && k !== 'q').length ? '(' + Object.keys(F).filter(k => F[k] && k !== 'q').length + ')' : ''} ▾</button>
         <input id="fq" type="search" placeholder="搜索 公司/城市/网站/邮箱/标签  Search…" value="${esc(F.q || '')}">
@@ -141,7 +141,7 @@
       <td data-l="类型">${esc(C.typeCN(c.customer_type))}</td>
       <td data-l="地区">${esc([c.city, c.state, c.country].filter(Boolean).join(', '))}</td>
       <td data-l="产品"><div class="chips">${UI.chips(c.products)}</div></td>
-      <td data-l="客户标记">${UI.attentionControl(c)}${UI.isInvalid(c) ? `<div class="muted small">${esc(c.invalid_reason || '历史无效客户')}${c.marked_by ? '<br>' + esc(UI.userName(c.marked_by)) + ' · ' + esc((c.marked_at || '').slice(0, 16).replace('T', ' ')) : ''}</div>` : UI.emailDue(c) ? '<div class="red small">邮件跟进已到期</div>' : ''}</td>
+      <td data-l="客户标记">${UI.attentionControl(c)}${UI.isInvalid(c) ? `<div class="muted small">${esc(c.invalid_reason || '历史无效客户')}${c.marked_by ? '<br>' + esc(UI.userName(c.marked_by)) + ' · ' + esc((c.marked_at || '').slice(0, 16).replace('T', ' ')) : ''}</div>` : UI.emailDue(c) ? '<div class="red small">追单已到期</div>' : ''}</td>
       <td data-l="优先级">${UI.prBadge(c.priority)}</td><td data-l="状态">${UI.stBadge(c.status)}</td>
       ${admin ? `<td data-l="业务员">${c.owner_id ? esc(UI.userName(c.owner_id)) : '<span class="pool">公海</span>'}</td>` : ''}
       <td data-l="下次跟进">${UI.dueBadge(c.next_follow_up) || '<span class="muted">—</span>'}</td>
@@ -164,7 +164,7 @@
       if (k === 'tags') v = (c.tags || []).join('; '); if (k === 'customer_type') v = C.typeName(c.customer_type); if (k === 'owner') v = c.owner_id ? (UI.USERS.find(u => u.id === c.owner_id) || {}).username || '' : '';
       o[cn + ' ' + en] = v == null ? '' : v; }); o['最近跟进 Last follow-up'] = c.last_follow_up || '';
       o['客户标记'] = UI.attention(c); o['无效原因'] = c.invalid_reason || ''; o['标记人'] = c.marked_by ? UI.userName(c.marked_by) : '';
-      o['标记时间'] = c.marked_at || ''; o['邮件提醒'] = UI.isInvalid(c) ? '已停止提醒' : UI.emailDueDate(c); return o; });
+      o['标记时间'] = c.marked_at || ''; o['追单提醒'] = UI.isInvalid(c) ? '已停止提醒' : UI.emailDueDate(c); return o; });
     const stamp = UI.today();
     if (fmt === 'csv') { const h = Object.keys(rows[0] || { '公司名称 Company Name': '' }), q = v => '"' + String(v).replace(/"/g, '""') + '"';
       return UI.download(`clients_${stamp}.csv`, new Blob(['\ufeff' + [h.map(q).join(',')].concat(rows.map(r => h.map(k => q(r[k])).join(','))).join('\r\n')], { type: 'text/csv;charset=utf-8' })); }
@@ -194,7 +194,7 @@
           <h3>公司信息 Company</h3>${kv('地址 Address', esc(c.address))}${kv('公司电话 Phone', c.company_phone ? UI.link(UI.tel(c.company_phone, c), c.company_phone) : '')}${kv('WhatsApp', wa ? UI.link(wa, c.whatsapp || c.company_phone + '（同公司电话，未核实是否开通）') : '')}
           ${kv('公司邮箱 Email', c.company_email ? UI.link('mailto:' + c.company_email, c.company_email) : '')}${kv('网站 Website', c.website ? UI.link(UI.url(c.website), c.website) : '')}
           <h3>采购联系人 Purchasing contact</h3>${kv('姓名 Name', esc(c.contact_name))}${kv('职位 Title', esc(c.contact_title))}${kv('LinkedIn', c.contact_linkedin ? UI.link(UI.url(c.contact_linkedin), c.contact_linkedin) : '')}
-          <h3>业务 Business</h3>${kv('客户标记', UI.attentionControl(c))}${kv('无效原因', esc(c.invalid_reason || ''))}${kv('邮件提醒', UI.isInvalid(c) ? '已停止提醒' : esc(UI.emailDueDate(c)))}${kv('匹配产品 Products', `<div class="chips">${UI.chips(c.products)}</div>`)}${kv('标签 Tags', UI.tags(c.tags))}${kv('Apollo 搜索条件', esc(c.apollo_criteria))}
+          <h3>业务 Business</h3>${kv('客户标记', UI.attentionControl(c))}${kv('无效原因', esc(c.invalid_reason || ''))}${kv('追单提醒', esc(UI.emailDueDate(c)) + ' ' + UI.chaseButton(c))}${kv('匹配产品 Products', `<div class="chips">${UI.chips(c.products)}</div>`)}${kv('标签 Tags', UI.tags(c.tags))}${kv('Apollo 搜索条件', esc(c.apollo_criteria))}
           ${kv('备注 Notes', esc(c.notes).replace(/\n/g, '<br>'))}${kv('来源/核实 Source', esc(c.source_note).replace(/(https?:\/\/[^\s;,)]+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>'))}
           ${kv('创建 Created', esc((c.created_at || '').slice(0, 10)) + ' · ' + esc(UI.userName(c.created_by)))}
         </section></div>

@@ -1,12 +1,46 @@
-/* Customer flags and recurring, in-app email reminders. No email is sent here. */
+/* Customer flags and recurring in-app chase reminders. */
 (function () {
-  const LEVELS = ['紧急', '重要', '普通', '无效'], PERIOD = 3 * 86400000;
+  const LEVELS = ['紧急', '重要', '普通', '无效'], PERIOD = 7 * 86400000;
   const now = () => new Date().toISOString();
   UI.attention = c => c.status === '无效' ? '无效' : (c.attention_level || '普通');
   UI.isInvalid = c => UI.attention(c) === '无效';
-  UI.emailDue = c => !!(c.owner_id && !UI.isInvalid(c) && c.email_anchor_at
+  UI.chaseEligible = c => !!(c.owner_id && !UI.isInvalid(c) && c.status !== '成交'
+    && (c.chase_assigned_at || DB.mode === 'demo') && UI.USERS.some(u => u.id === c.owner_id && u.role === 'sales'));
+  UI.emailDue = c => !!(UI.chaseEligible(c) && c.email_anchor_at
     && c.reminder_owner_id === c.owner_id && Date.now() >= Date.parse(c.email_anchor_at) + PERIOD);
-  UI.emailDueDate = c => c.email_anchor_at ? new Date(Date.parse(c.email_anchor_at) + PERIOD).toLocaleString('zh-CN') : '领取后开始计时';
+  UI.emailDueDate = c => UI.chaseEligible(c) && c.email_anchor_at
+    ? new Date(Date.parse(c.email_anchor_at) + PERIOD).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' }) : '暂无追单提醒';
+  UI.chaseButton = c => UI.chaseEligible(c) && UI.ME.role === 'sales' && c.owner_id === UI.ME.id
+    ? `<button class="btn ghost sm" type="button" data-chase="${UI.esc(c.id)}">标记已追单</button>` : '';
+  document.addEventListener('click', event => {
+    const button = event.target.closest('[data-chase]');
+    if (!button) return;
+    const c = UI.CLIENTS.find(row => row.id === button.dataset.chase);
+    if (!c || !UI.chaseButton(c)) return;
+    UI.modal(`<h2>登记已追单</h2><p>${UI.esc(c.company_name)} · 只登记已发生的联系</p>
+      <form><label>联系渠道<select name="channel">${C.CHANNELS.map(([id,label]) => UI.opt(id,label,'email')).join('')}</select></label>
+      <label>沟通记录<textarea name="note" required maxlength="2000"></textarea></label>
+      <label><input type="checkbox" name="replied"> 本次已收到客户回复</label>
+      <p role="status" class="err"></p><button class="primary">保存追单记录</button></form>`, (modal, close) => {
+      const form = modal.querySelector('form'), save = form.querySelector('button');
+      form.onsubmit = async event => {
+        event.preventDefault();
+        const { channel, note, replied } = form.elements;
+        if (!note.value.trim()) return;
+        save.disabled = true;
+        try {
+          if (DB.mode === 'demo') await DB.addLog(c.id, { entry_date: UI.today(), channel: channel.value, content: '已追单：' + note.value.trim(), next_follow_up: c.next_follow_up, status: replied.checked ? '已回复' : undefined });
+          else DB.chk(await DB.init().rpc('crm_mark_chased', { p_client: c.id, p_channel: channel.value, p_note: note.value, p_replied: replied.checked }));
+        } catch (error) {
+          form.querySelector('[role=status]').textContent = error.message;
+          save.disabled = false;
+          return;
+        }
+        close(); UI.toast('已记录追单，7 天提醒重新计时');
+        try { await UI.refresh(); await UI.route(); } catch (error) { UI.toast(error.message, 1); }
+      };
+    });
+  });
   UI.attentionBadge = c => `<span class="attention attention-${LEVELS.indexOf(UI.attention(c))}">${UI.esc(UI.attention(c))}</span>`;
   UI.attentionControl = c => (UI.ME.role === 'admin' || c.owner_id === UI.ME.id)
     ? `<select data-attention="${UI.esc(c.id)}" aria-label="客户标记">${LEVELS.map(l => UI.opt(l, l, UI.attention(c))).join('')}</select>` : UI.attentionBadge(c);
@@ -71,7 +105,7 @@
     DB.addLog = async (id, data) => {
       const result = await addLog(id, data); demoTracking();
       const c = DB.load().clients.find(c => c.id === id), t = DB.load().client_tracking[id];
-      if (data.channel === 'email' && c.owner_id === DB.me().id) {
+      if (c.owner_id === DB.me().id && data.entry_date <= UI.today()) {
         const today = UI.today(), date = data.entry_date || today;
         const sent = date >= today ? now() : new Date(date + 'T00:00:00+08:00').toISOString();
         if (sent > t.email_anchor_at) { t.email_anchor_at = sent; DB.save(); }
@@ -96,18 +130,18 @@
     const due = UI.CLIENTS.filter(c => (UI.ME.role === 'admin' || c.owner_id === UI.ME.id) && UI.emailDue(c));
     if (!due.length) return;
     const notice = document.createElement('div'); notice.id = 'emailReminderNotice'; notice.className = 'warn email-reminder';
-    notice.innerHTML = `<b>✉️ ${UI.ME.role === 'admin' ? '团队' : '你有'} ${due.length} 家客户到期需要邮件跟进</b> <a href="#/email-reminders">查看提醒</a> · 每3天提醒，登记邮件跟进后重新计时`;
+    notice.innerHTML = `<b>✉️ ${UI.ME.role === 'admin' ? '团队' : '你有'} ${due.length} 家客户到期需要追单</b> <a href="#/email-reminders">查看提醒</a> · 每7天提醒，登记实际联系后重新计时`;
     document.querySelector('main').prepend(notice);
-    // Persistent per-account, per-customer three-day buckets suppress repeated toasts.
+    // Persistent per-account, per-customer seven-day buckets suppress repeated toasts.
     if (UI.ME.role !== 'admin') {
       let fresh = false;
       for (const c of due) {
         const bucket = Math.floor((Date.now() - Date.parse(c.email_anchor_at)) / PERIOD);
-        const key = `fcrm_email_notice:${UI.ME.id}:${c.id}`;
+        const key = `fcrm_chase_notice:${UI.ME.id}:${c.id}`;
         const token = `${c.email_anchor_at}:${bucket}`;
         try { if (localStorage.getItem(key) !== token) { localStorage.setItem(key, token); fresh = true; } } catch (e) { /* Banner remains available if storage is disabled. */ }
       }
-      if (fresh) UI.toast(`邮件跟进提醒：${due.length} 家客户已到期`);
+      if (fresh) UI.toast(`追单提醒：${due.length} 家客户已到期`);
     }
   }
   setInterval(() => { if (!document.hidden) showReminders(); }, 60000);

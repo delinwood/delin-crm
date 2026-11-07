@@ -34,7 +34,7 @@
   async function history(id) {
     try {
       const rows=DB.mode==='demo' ? (DB.load().pool_events||[]).filter(x=>x.client_id===id).reverse() : DB.chk(await DB.t('crm_pool_events').select('*').eq('client_id',id).order('at',{ascending:false}).limit(100));
-      UI.modal(`<h2>领取 / 退回记录</h2><ul class="timeline">${rows.map(x=>`<li>${esc(new Date(x.at).toLocaleString('zh-CN'))} · ${esc(UI.userName(x.actor_id))} · ${x.action==='claim'?'领取':'退回第二公海'}<p>${esc(x.reason||'')}</p></li>`).join('')||'<li>暂无记录</li>'}</ul>`);
+      UI.modal(`<h2>领取 / 退回记录</h2><ul class="timeline">${rows.map(x=>`<li>${esc(new Date(x.at).toLocaleString('zh-CN'))} · ${esc(x.actor_id ? UI.userName(x.actor_id) : '系统')} · ${x.action==='claim'?'领取':x.pool_kind==='initial'?'转入公海':'退回第二公海'}<p>${esc(x.reason||'')}</p></li>`).join('')||'<li>暂无记录</li>'}</ul>`);
     } catch(e) { UI.toast(e.message,1); }
   }
   async function release(c) {
