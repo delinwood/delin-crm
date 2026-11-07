@@ -19,7 +19,7 @@
     const logs=allLogs.filter(l=>admin||l.author_id===me.id),samples=allSamples.filter(s=>s.status==='已寄出'||s.status==='已签收'),quotes=allQuotes.filter(q=>q.valid_until&&q.valid_until>=t&&q.valid_until<=UI.today(7));
     const hour = new Date().getHours();
     UI.render(`<div class="pagehead"><h1>${hour < 12 ? '早上好' : hour < 18 ? '下午好' : '晚上好'}，${esc(me.full_name)} <small>${esc(t)} · ${admin ? '全团队视图 Team view' : '我的工作台 My day'}</small></h1>
-      <div class="actions"><a class="btn ghost" href="#/prospect">🔎 找客户</a><a class="btn primary" href="#/new">+ 新建客户</a></div></div>
+      <div class="actions"><a class="btn primary" href="#/today-work">今日待办</a><a class="btn ghost" href="#/prospect">🔎 找客户</a><a class="btn primary" href="#/new">+ 新建客户</a></div></div>
       <section class="kpis k5">
         <a class="kpi warn" href="#/list" data-due="overdue"><b>${over.length}</b><span>已逾期 Overdue</span></a>
         <a class="kpi" href="#/list" data-due="today"><b>${today.length}</b><span>今日待跟进 Today</span></a>
