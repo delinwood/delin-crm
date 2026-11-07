@@ -64,7 +64,7 @@
       <div class="bulk card" id="bulk" hidden><b id="selc"></b>
         ${admin ? `<select id="b_owner"><option value="">分配给… Assign to</option>${opt('_none', '放回公海 Back to pool', '')}${UI.USERS.filter(u => u.active).map(u => opt(u.id, u.full_name, '')).join('')}</select>
         <select id="b_pri"><option value="">优先级…</option>${C.PRIORITIES.map(v => opt(v, v+" · "+C.PRIORITY_NAMES[v], '')).join('')}</select>` : ''}
-        <select id="b_status"><option value="">状态…</option>${C.STATUSES.filter(s => admin || s[0] !== '无效').map(s => opt(s[0], s[0], '')).join('')}</select>
+        <select id="b_status"><option value="">状态…</option>${C.STATUSES.filter(s => s[0] !== '成交' && (admin || s[0] !== '无效')).map(s => opt(s[0], s[0], '')).join('')}</select>
         <input id="b_tag" placeholder="+ 标签 tag" style="width:110px"><input id="b_next" type="date" title="下次跟进">
         <button class="primary sm" id="b_apply">应用 Apply</button><button class="primary sm" id="b_mail">批量发送邮件</button>${UI.canExport()?'<button class="ghost sm" id="b_export">导出所选</button>':''}${canDelete ? '<button class="ghost sm danger" id="b_delete">批量删除（移入回收站）</button>' : ''}${UI.batchAction?'<button class="ghost sm" id="b_release">批量退回第二公海</button>':''}<button class="ghost sm" id="b_clear">取消选择</button></div>
       <section class="card tbl"><table><thead><tr><th class="ck"><input type="checkbox" id="selall"></th>${th('company_name', '公司 Company')}<th>类型</th>${th('country', '地区 Location')}<th>产品 Products</th><th>客户标记</th>${th('priority', '优先级')}${th('status', '状态')}${admin ? th('owner_id', '业务员') : ''}${th('next_follow_up', '下次跟进')}${th('last_follow_up', '最近跟进')}<th>当地时间</th></tr></thead><tbody id="rows"></tbody></table></section>
@@ -102,7 +102,7 @@
     if ($('#b_delete')) $('#b_delete').onclick = () => removeClients(UI.CLIENTS.filter(c => SEL.has(c.id)));
     if($('#b_release'))$('#b_release').onclick = () => {
       const chosen=UI.CLIENTS.filter(c=>SEL.has(c.id));
-      if(chosen.some(c=>!c.owner_id||UI.isInvalid(c)||(!admin&&c.owner_id!==UI.ME.id))) return UI.toast('请仅勾选有负责人、可退回的有效客户',1);
+      if(chosen.some(c=>!c.owner_id||UI.isInvalid(c)||c.status==='成交'||(!admin&&c.owner_id!==UI.ME.id))) return UI.toast('请仅勾选有负责人、未成交且可退回的有效客户',1);
       UI.batchAction({title:'批量退回第二公海',items:chosen.map(c=>({id:c.id,label:c.company_name})),fields:UI.batchReason,
         description:'保留客户和跟进历史，停止相关自动邮件计划。',
         apply:({id},values)=>DB.releaseClient(id,values.reason.trim()),
@@ -230,7 +230,7 @@
           <h3>公司信息 Company</h3>${kv('地址 Address', esc(c.address))}${kv('公司电话 Phone', c.company_phone ? UI.link(UI.tel(c.company_phone, c), c.company_phone) : '')}${kv('WhatsApp', wa ? UI.link(wa, c.whatsapp || c.company_phone + '（同公司电话，未核实是否开通）') : '')}
           ${kv('公司邮箱 Email', c.company_email ? UI.link('mailto:' + c.company_email, c.company_email) : '')}${kv('网站 Website', c.website ? UI.link(UI.url(c.website), c.website) : '')}
           <h3>采购联系人 Purchasing contact</h3>${kv('姓名 Name', esc(c.contact_name))}${kv('职位 Title', esc(c.contact_title))}${kv('LinkedIn', c.contact_linkedin ? UI.link(UI.url(c.contact_linkedin), c.contact_linkedin) : '')}
-          <h3>业务 Business</h3>${kv('客户标记', UI.attentionControl(c))}${kv('无效原因', esc(c.invalid_reason || ''))}${kv('追单提醒', esc(UI.emailDueDate(c)) + ' ' + UI.chaseButton(c))}${kv('匹配产品 Products', `<div class="chips">${UI.chips(c.products)}</div>`)}${kv('标签 Tags', UI.tags(c.tags))}${kv('Apollo 搜索条件', esc(c.apollo_criteria))}
+          <h3>业务 Business</h3>${c.status==='成交' ? kv('成交说明',esc(c.deal_note||'历史成交客户，请在编辑资料中补填')) : ''}${kv('客户标记', UI.attentionControl(c))}${kv('无效原因', esc(c.invalid_reason || ''))}${kv('追单提醒', esc(UI.emailDueDate(c)) + ' ' + UI.chaseButton(c))}${kv('匹配产品 Products', `<div class="chips">${UI.chips(c.products)}</div>`)}${kv('标签 Tags', UI.tags(c.tags))}${kv('Apollo 搜索条件', esc(c.apollo_criteria))}
           ${kv('备注 Notes', esc(c.notes).replace(/\n/g, '<br>'))}${kv('来源/核实 Source', esc(c.source_note).replace(/(https?:\/\/[^\s;,)]+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>'))}
           ${kv('创建 Created', esc((c.created_at || '').slice(0, 10)) + ' · ' + esc(UI.userName(c.created_by)))}
         </section></div>
@@ -240,7 +240,7 @@
             <form id="logf" class="logf"><div class="row3"><label>日期<input type="date" name="d" value="${UI.today()}" required></label><label>方式<select name="ch">${C.CHANNELS.map(x => opt(x[0], x[1], 'email')).join('')}</select></label>
             <label>状态<select name="st"><option value="">${c.status === '未联系' ? '自动→已联系' : '不变 Keep'}</option>${C.STATUSES.filter(s => admin || s[0] !== '无效').map(s => opt(s[0], s[0] + ' ' + s[1], '')).join('')}</select></label></div>
             <textarea name="t" rows="3" placeholder="沟通内容：发了什么、对方怎么回、下一步… What happened / next step" required></textarea>
-            <div class="row3"><label>下次跟进 Next follow-up<input type="date" name="nx" value="${UI.today(3)}"></label><div class="qd">${[[1, '明天'], [3, '3天'], [7, '1周'], [14, '2周'], [30, '1月']].map(d => `<button type="button" class="ghost sm" data-nx="${d[0]}">${d[1]}</button>`).join('')}<button type="button" class="ghost sm" data-nx="">不设</button></div><button class="primary">添加记录</button></div></form>
+            <label id="logDealNote" hidden>成交说明<textarea name="deal_note" rows="2" maxlength="2000" placeholder="写明成交产品、订单编号或日期，以及后续补货安排"></textarea></label><div class="row3"><label>下次跟进 Next follow-up<input type="date" name="nx" value="${UI.today(3)}"></label><div class="qd">${[[1, '明天'], [3, '3天'], [7, '1周'], [14, '2周'], [30, '1月']].map(d => `<button type="button" class="ghost sm" data-nx="${d[0]}">${d[1]}</button>`).join('')}<button type="button" class="ghost sm" data-nx="">不设</button></div><button class="primary">添加记录</button></div></form>
             <ul class="timeline">${logs.map(l => `<li><div class="dt">${esc(l.entry_date)} <span class="chn">${esc(C.channelName(l.channel))}</span> <span>${esc(l.author_name)}</span>${l.next_follow_up ? ` <span class="muted">→ 下次 ${esc(l.next_follow_up)}</span>` : ''}</div><div>${esc(l.content).replace(/\n/g, '<br>')}</div></li>`).join('') || '<li class="muted">暂无记录 No entries yet</li>'}</ul></div>
           <div class="tabp" data-p="quote" ${TAB !== 'quote' ? 'hidden' : ''}>
             <form id="qf" class="g3 small"><label>产品<select name="product">${C.PRODUCTS.map(p => opt(p[0], p[1], (c.products || [])[0])).join('')}</select></label><label>规格 Spec<input name="spec" placeholder="e.g. 5mm+1.5mm IXPE, 0.3mm wear"></label>
@@ -267,8 +267,15 @@
     }
     $$('.tab').forEach(b => b.onclick = () => { TAB = b.dataset.tab; $$('.tab').forEach(x => x.classList.toggle('on', x === b)); $$('.tabp').forEach(p => p.hidden = p.dataset.p !== TAB); });
     $$('[data-nx]').forEach(b => b.onclick = () => { $('#logf').nx.value = b.dataset.nx ? UI.today(+b.dataset.nx) : ''; });
+    const logForm = $('#logf'), logDealNote = logForm.elements.deal_note;
+    const syncLogDeal = () => {
+      logDealNote.required = logForm.st.value === '成交';
+      $('#logDealNote').hidden = !logDealNote.required;
+    };
+    logForm.st.onchange = syncLogDeal;
+    syncLogDeal();
     $('#logf').onsubmit = async e => { e.preventDefault(); const f = e.target;
-      try { await DB.addLog(id, { entry_date: f.d.value, channel: f.ch.value, content: f.t.value.trim(), next_follow_up: f.nx.value, status: f.st.value }); UI.toast('已保存 Saved'); await UI.refresh(); await UI.views.client.render(id); } catch (err) { UI.toast(err.message, 1); } };
+      try { await DB.addLog(id, { entry_date: f.d.value, channel: f.ch.value, content: f.t.value.trim(), next_follow_up: f.nx.value, status: f.st.value, deal_note: logDealNote.value.trim() }); UI.toast('已保存 Saved'); await UI.refresh(); await UI.views.client.render(id); } catch (err) { UI.toast(err.message, 1); } };
     $('#qf').onsubmit = async e => { e.preventDefault(); const f = e.target, q = {}; ['product', 'spec', 'currency', 'price', 'unit', 'qty', 'incoterm', 'quote_date', 'valid_until', 'notes'].forEach(k => q[k] = f[k].value || null);
       q.price = +q.price; q.qty = q.qty ? +q.qty : null; try { await DB.addQuote(id, q); TAB = 'quote'; UI.toast('报价已记录'); await UI.refresh(); await UI.views.client.render(id); } catch (err) { UI.toast(err.message, 1); } };
     $('#sf').onsubmit = async e => { e.preventDefault(); const f = e.target, s = {}; ['items', 'status', 'sent_date', 'courier', 'tracking_no'].forEach(k => s[k] = f[k].value || null);
@@ -311,12 +318,18 @@
         ${admin ? `<label>负责业务员 Owner<select name="owner_id">${opt('', '公海 Pool（未分配）', c.owner_id || '')}${UI.USERS.filter(u => u.active).map(u => opt(u.id, u.full_name + ' (' + u.username + ')', isNew && !prefill ? UI.ME.id : c.owner_id)).join('')}</select></label>` : `<label>负责业务员 Owner<input disabled value="${esc(isNew ? UI.ME.full_name : UI.userName(c.owner_id))}"></label>`}
         ${inp('next_follow_up', '下次跟进 Next follow-up', 'date')}<label>标签 Tags（逗号分隔）<input name="tags" value="${esc((c.tags || []).join(', '))}" placeholder="展会2026, 私标, 大客户"></label></div>
       <label>Apollo 搜索条件 Apollo search criteria<textarea name="apollo_criteria" rows="2">${esc(c.apollo_criteria || '')}</textarea></label>
+      <label id="dealNote" hidden>成交说明<textarea name="deal_note" rows="2" maxlength="2000" placeholder="写明成交产品、订单编号或日期，以及后续补货安排">${esc(c.deal_note || '')}</textarea></label>
       <label>备注 Notes<textarea name="notes" rows="3">${esc(c.notes || '')}</textarea></label>
       <label>来源/核实说明 Source / verification<textarea name="source_note" rows="2">${esc(c.source_note || '')}</textarea></label>
       <div class="warn" id="uswarn" hidden>⚠️ 美国市场不推强化/实木复合地板 (USA: no laminate / engineered)</div>
       <div class="actions"><button class="primary">保存 Save</button></div></form>`, isNew ? 'list' : 'list');
     const f = $('#cf'), chk = () => { $('#uswarn').hidden = !(/^(usa|us|united states)$/i.test(f.country.value.trim()) && [...f.querySelectorAll('[name=products]:checked')].some(x => C.US_EXCLUDED.includes(x.value))); };
-    f.oninput = chk; chk();
+    const syncDeal = () => {
+      f.elements.deal_note.required = f.status.value === '成交';
+      $('#dealNote').hidden = !f.elements.deal_note.required;
+    };
+    f.status.onchange = syncDeal;
+    f.oninput = chk; chk(); syncDeal();
     let dupOk = false;
     const dupCheck = async () => { if (!isNew) return []; const d = await DB.checkDuplicate({ name: f.company_name.value, website: f.website.value, phone: f.company_phone.value });
       $('#dupbox').innerHTML = d.length ? `<div class="warn">⚠️ 可能重复 Possible duplicate：${d.map(x => `<div>「${esc(x.company_name || '（他人客户 another rep’s client）')}」 匹配 ${esc(x.match)} · 归属 <b>${esc(x.owner_name)}</b> ${x.client_id ? `<a href="#/client/${esc(x.client_id)}">查看</a>` : ''}</div>`).join('')}</div>` : ''; return d; };
@@ -324,6 +337,10 @@
     f.onsubmit = async e => { e.preventDefault(); const d = {};
       ['company_name', 'customer_type', 'country', 'state', 'city', 'address', 'company_phone', 'whatsapp', 'company_email', 'website', 'contact_name', 'contact_title', 'contact_linkedin', 'priority', 'status', 'apollo_criteria', 'notes', 'source_note'].forEach(k => d[k] = f[k].value.trim());
       d.state = d.state.toUpperCase().length <= 3 ? d.state.toUpperCase() : d.state; d.next_follow_up = f.next_follow_up.value || null;
+      if (d.status === '成交') {
+        d.deal_note = f.elements.deal_note.value.trim();
+        if (!d.deal_note) return UI.toast('请填写成交说明',true);
+      }
       d.tags = f.tags.value.split(/[,，;；]/).map(s => s.trim().replace(/^#/, '')).filter(Boolean);
       d.products = [...f.querySelectorAll('[name=products]:checked')].map(x => x.value); if (admin) d.owner_id = f.owner_id.value || null;
       try {

@@ -27,7 +27,7 @@
         <a class="kpi" href="#/list" data-st="未联系"><b>${scope.filter(c => c.status === '未联系').length}</b><span>未联系 New leads</span></a>
         <div class="kpi"><b>${logs.length}</b><span>本周跟进 Logged (7d)</span></div></section>
       <section class="card pad"><div class="sec-h"><h2>✉️ 每7天追单提醒 <small>${emailDue.length} 家已到期</small></h2><a href="#/email-reminders">查看全部提醒 ›</a></div>
-        <p class="muted small">领取或新建自己的客户后开始计时，登记实际联系后重新计时。连续15天未联系或90天未收到已登记回复时，系统转入公海。</p>
+        <p class="muted small">领取或新建自己的客户后开始计时，登记实际联系后重新计时。连续30天未记录实际联系时，系统转入谷歌客户公海。已成交客户保留负责人，请在客户详情填写成交说明。</p>
         <ul class="todo">${emailDue.slice(0, 15).map(row).join('') || '<li class="muted">暂无到期追单任务</li>'}</ul></section>
       <div class="grid3">
         <section class="card pad"><h2>🔴 逾期 + 今日 <small>Overdue & today</small></h2><ul class="todo">${[...over, ...today].slice(0, 30).map(row).join('') || '<li class="muted">🎉 没有逾期或今日任务</li>'}</ul></section>
@@ -55,7 +55,7 @@
         s: samples.filter(s => s.author_id === u.id && (s.sent_date || '') >= UI.today(-29)).length, stale: stale.filter(c => c.owner_id === u.id).length }; });
     const pool = all.filter(c => !c.owner_id).length;
     const byCountry = Object.entries(all.reduce((m, c) => (m[c.country || '—'] = (m[c.country || '—'] || 0) + 1, m), {})).sort((a, b) => b[1] - a[1]);
-    UI.render(`<div class="pagehead"><h1>团队看板 <small>Team dashboard</small></h1><div class="actions"><a class="btn ghost" href="#/pool">🌊 谷歌客户公海 ${pool}</a><a class="btn ghost" href="#/admin">⚙️ 管理</a></div></div>
+    UI.render(`<div class="pagehead"><h1>团队看板 <small>Team dashboard</small></h1><div class="actions"><a class="btn ghost" href="#/pool">🌊 公海 ${pool}</a><a class="btn ghost" href="#/admin">⚙️ 管理</a></div></div>
       <section class="kpis k5"><div class="kpi"><b>${all.length}</b><span>客户总数 Clients</span></div><div class="kpi"><b>${pool}</b><span>公海未分配 Pool</span></div>
         <div class="kpi"><b>${logs.filter(l => l.entry_date >= wk).length}</b><span>本周跟进 Activities 7d</span></div><div class="kpi"><b>${quotes.filter(q => q.quote_date >= UI.today(-29)).length}</b><span>30天报价 Quotes</span></div>
         <div class="kpi warn"><b>${UI.overdue(all).length}</b><span>全队逾期 Overdue</span></div></section>

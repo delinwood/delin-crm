@@ -11,7 +11,7 @@
     nameKey(n) { return String(n || '').toLowerCase().replace(/&/g, ' and ').replace(/\b(inc|ltd|llc|corp|corporation|co|company|limited|group|the|gmbh|sa|sas|srl|bv|nv|sp z o o|ltee|ltée|plc|pty)\b/g, ' ').replace(/[^a-z0-9\u4e00-\u9fa5]+/g, ''); },
     diff(before, after, keys) { const d = {}; keys.forEach(k => { const a = JSON.stringify(before[k] ?? ''), b = JSON.stringify(after[k] ?? ''); if (k in after && a !== b) d[k] = [before[k] ?? '', after[k] ?? '']; }); return d; }
   };
-  const TRACK = ['company_name','customer_type','country','state','city','address','company_phone','whatsapp','company_email','website','contact_name','contact_title','contact_linkedin','products','apollo_criteria','priority','owner_id','status','next_follow_up','tags','notes','source_note'];
+  const TRACK = ['company_name','deal_note','customer_type','country','state','city','address','company_phone','whatsapp','company_email','website','contact_name','contact_title','contact_linkedin','products','apollo_criteria','priority','owner_id','status','next_follow_up','tags','notes','source_note'];
 
   // ======================= DEMO =======================
   const KEY = 'fcrm_demo_v2';
@@ -108,12 +108,14 @@
     async deleteClient(id) { return this.bulkDeleteClients([id]); },
     names() { const u = this.load().users; return id => (u.find(x => x.id === id) || {}).full_name || ''; },
     async listLogs(cid) { await this.getClient(cid); const nm = this.names(); return this.load().logs.filter(l => l.client_id === cid).map(l => ({ ...l, author_name: nm(l.author_id) })).sort((a, b) => (b.entry_date + b.created_at).localeCompare(a.entry_date + a.created_at)); },
-    async addLog(cid, { entry_date, channel, content, next_follow_up, status }) {
+    async addLog(cid, { entry_date, channel, content, next_follow_up, status, deal_note }) {
       const c = await this.getClient(cid), me = this.me();
       const l = { id: uid('l'), client_id: cid, author_id: me.id, entry_date, channel: channel || 'email', content, next_follow_up: next_follow_up || null, created_at: nowISO() };
+      if (status === '成交' && !deal_note?.trim()) throw new Error('请填写成交说明');
       this.load().logs.push(l); this.audit(cid, 'log', { channel: l.channel, entry_date }); this.save();
       const patch = { next_follow_up: next_follow_up || null }; if (status && status !== c.status) patch.status = status;
       if (!status && c.status === '未联系') patch.status = '已联系';
+      if (status === '成交') patch.deal_note = deal_note.trim();
       await this.updateClient(cid, patch, 'update'); return l;
     },
     async listQuotes(cid) { if (cid) await this.getClient(cid); const nm = this.names(), me = this.me(); return this.load().quotes.filter(q => cid ? q.client_id === cid : this.canSee(this.db.clients.find(c => c.id === q.client_id) || {}, me)).map(q => ({ ...q, author_name: nm(q.author_id) })).sort((a, b) => b.quote_date.localeCompare(a.quote_date)); },
@@ -198,7 +200,11 @@
     },
     async deleteClient(id) { return this.bulkDeleteClients([id]); },
     async listLogs(cid) { return this.chk(await this.t('follow_ups').select('*, author:profiles(full_name)').eq('client_id', cid).order('entry_date', { ascending: false }).order('created_at', { ascending: false })).map(r => ({ ...r, author_name: r.author ? r.author.full_name : '' })); },
-    async addLog(cid, l) { return this.chk(await this.init().rpc('add_follow_up', { p_client: cid, p_date: l.entry_date, p_channel: l.channel || 'email', p_content: l.content, p_next: l.next_follow_up || null, p_status: l.status || null })); },
+    async addLog(cid, l) {
+      const fields = { p_client: cid, p_date: l.entry_date, p_channel: l.channel || 'email', p_content: l.content, p_next: l.next_follow_up || null };
+      if (l.status === '成交') return this.chk(await this.init().rpc('crm_add_deal_follow_up', { ...fields, p_note: l.deal_note }));
+      return this.chk(await this.init().rpc('add_follow_up', { ...fields, p_status: l.status || null }));
+    },
     async listQuotes(cid) { let q = this.t('quotes').select('*, author:profiles(full_name)').order('quote_date', { ascending: false }); if (cid) q = q.eq('client_id', cid); return this.chk(await q).map(r => ({ ...r, author_name: r.author ? r.author.full_name : '' })); },
     async addQuote(cid, q) { return this.chk(await this.t('quotes').insert({ ...q, client_id: cid }).select().single()); },
     async deleteQuote(id) { this.chk(await this.t('quotes').delete().eq('id', id)); },

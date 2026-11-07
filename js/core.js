@@ -79,7 +79,19 @@
     const lm = $('#logoutMobile'); if (lm) lm.onclick = $('#logout').onclick;
     const r = $('#resetDemo'); if (r) r.onclick = e => { e.preventDefault(); if (confirm('重置所有演示数据？Reset demo data?')) { DB.reset(); route(); } };
   };
-  UI.render = (inner, active) => { $('#app').innerHTML = UI.shell(inner, active); UI.bindShell(); window.scrollTo(0, 0); };
+  let renderedHash, renderedUser;
+  UI.render = (inner, active) => {
+    const sameUser = renderedUser === UI.ME?.id;
+    const sidebarTop = sameUser ? $('.side-scroll')?.scrollTop || 0 : 0;
+    const pageTop = sameUser && renderedHash === location.hash ? window.scrollY : 0;
+    renderedHash = location.hash;
+    renderedUser = UI.ME?.id;
+    $('#app').innerHTML = UI.shell(inner, active);
+    UI.bindShell();
+    const sidebar = $('.side-scroll');
+    if (sidebar) sidebar.scrollTop = sidebarTop;
+    window.scrollTo(0, pageTop);
+  };
 
   // Cache read-only view data briefly; writes still use the server's checks.
   UI.viewRead = load => {
@@ -105,6 +117,7 @@
 
   // ---------- login ----------
   function viewLogin() {
+    renderedHash = renderedUser = undefined;
     $('#app').innerHTML = `<div class="login"><div class="card login-card">
       <div class="brand big">${cfg.LOGO_URL ? `<img src="${esc(cfg.LOGO_URL)}" alt="">` : '<div class="logo">F</div>'}<div><div class="bn">${esc(cfg.COMPANY_NAME_CN)}</div><div class="bs">${esc(cfg.COMPANY_NAME_EN)}</div></div></div>
       <h1>外贸客户管理系统 <span>Export CRM</span></h1>

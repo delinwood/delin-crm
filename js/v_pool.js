@@ -19,6 +19,7 @@
     if (DB.mode !== 'demo') return DB.chk(await DB.init().rpc('release_client',{p_client_id:id,p_reason:reason}));
     const c=await DB.getClient(id), me=DB.me();
     if (!me?.active || !c.owner_id || (me.role!=='admin' && c.owner_id!==me.id)) throw new Error('只能退回自己负责的客户');
+    if (c.status==='成交') throw new Error('已成交客户保留负责人，不能退回公海');
     if (UI.isInvalid(c)) throw new Error('无效客户请保留在无效客户组，由老板审查');
     if (reason.trim().length<2 || reason.length>2000) throw new Error('请填写2至2000字的退回原因');
     const db=DB.load(); db.pool_metadata ||= {}; db.pool_events ||= [];
@@ -31,10 +32,20 @@
     if (DB.mode==='demo') { const db=DB.load(); db.pool_events ||= []; db.pool_events.push({client_id:id,company_name:r.company_name,action:'claim',actor_id:DB.me().id,at:new Date().toISOString()}); DB.save(); }
     return r;
   };
+  const poolDate = at => at ? new Date(at).toLocaleString('zh-CN',{timeZone:'Asia/Shanghai'}) : '';
+  async function myHistory() {
+    try {
+      const rows = DB.mode==='demo'
+        ? (DB.load().pool_events||[]).filter(x=>x.action==='release'&&x.previous_owner===UI.ME.id).slice().reverse()
+        : DB.chk(await DB.t('crm_pool_events').select('company_name,pool_kind,reason,at')
+            .eq('action','release').eq('previous_owner',UI.ME.id).order('at',{ascending:false}).limit(100));
+      UI.modal(`<h2>我的退回记录</h2><p>最近 100 条。客户后来被其他人领取，仍可查看自己的退回记录。</p><ul class="timeline">${rows.map(x=>`<li><b>${esc(x.company_name)}</b> · ${esc(poolDate(x.at))} · ${x.pool_kind==='initial'?'谷歌客户公海':'第二公海'}<p>${esc(x.reason||'')}</p></li>`).join('')||'<li>暂无记录</li>'}</ul>`);
+    } catch(e) { UI.toast(e.message,1); }
+  }
   async function history(id) {
     try {
       const rows=DB.mode==='demo' ? (DB.load().pool_events||[]).filter(x=>x.client_id===id).reverse() : DB.chk(await DB.t('crm_pool_events').select('*').eq('client_id',id).order('at',{ascending:false}).limit(100));
-      UI.modal(`<h2>领取 / 退回记录</h2><ul class="timeline">${rows.map(x=>`<li>${esc(new Date(x.at).toLocaleString('zh-CN'))} · ${esc(x.actor_id ? UI.userName(x.actor_id) : '系统')} · ${x.action==='claim'?'领取':x.pool_kind==='initial'?'转入公海':'退回第二公海'}<p>${esc(x.reason||'')}</p></li>`).join('')||'<li>暂无记录</li>'}</ul>`);
+      UI.modal(`<h2>领取 / 退回记录</h2><ul class="timeline">${rows.map(x=>`<li>${esc(new Date(x.at).toLocaleString('zh-CN'))} · ${esc(x.actor_id ? UI.userName(x.actor_id) : '系统')} · ${x.action==='claim'?'领取':x.pool_kind==='initial'?'转入公海':'退回第二公海'}<p>${x.previous_owner?'原负责人：'+esc(UI.userName(x.previous_owner))+' · ':''}${esc(x.reason||'')}</p></li>`).join('')||'<li>暂无记录</li>'}</ul>`);
     } catch(e) { UI.toast(e.message,1); }
   }
   async function release(c) {
@@ -53,7 +64,7 @@
   function drawPool(kind,canArchive) {
     const admin=UI.ME.role==='admin', secondary=kind==='secondary';
     if (lastKind !== kind) { selected.clear(); page=0; lastKind=kind; }
-    const available=UI.CLIENTS.filter(c=>!c.owner_id&&!UI.isInvalid(c));
+    const available=UI.CLIENTS.filter(c=>!c.owner_id&&c.status!=='成交'&&!UI.isInvalid(c));
     const base=available.filter(c=>(c.pool_kind||'initial')===kind);
     const list=base.filter(c=>[c.company_name,c.country,c.city,...(c.products||[]),c.return_reason].join(' ').toLowerCase().includes(filter.toLowerCase())).sort((a,b)=>(b.returned_at||b.created_at||'').localeCompare(a.returned_at||a.created_at||''));
     page=Math.min(page,Math.max(0,Math.ceil(list.length/50)-1));
@@ -61,25 +72,30 @@
     const useBatch=!!UI.batchTools;
     const actions=(admin?`<button class="primary sm" data-batch-action="assign">批量分配并移出公海</button>`:`<button class="primary sm" data-batch-action="claim">批量领取</button>`)
       +(canArchive?'<button class="ghost sm danger" data-batch-action="trash">批量移入回收站</button>':'');
-    UI.render(`<div class="pagehead"><h1>${secondary?'第二公海 · 退回客户':'谷歌客户公海 · 新线索'} <small>${list.length} 家</small></h1><div class="actions"><a class="btn ${secondary?'ghost':'primary'}" href="#/pool">谷歌客户公海 ${available.filter(c=>(c.pool_kind||'initial')==='initial').length}</a><a class="btn ${secondary?'primary':'ghost'}" href="#/second-pool">第二公海 ${available.filter(c=>c.pool_kind==='secondary').length}</a><button class="ghost" id="poolRefresh">刷新</button></div></div>
+    UI.render(`<div class="pagehead"><h1>${secondary?'第二公海 · 退回客户':'谷歌客户公海 · 新线索'} <small>${list.length} 家</small></h1><div class="actions"><a class="btn ${secondary?'ghost':'primary'}" href="#/pool">谷歌客户公海 ${available.filter(c=>(c.pool_kind||'initial')==='initial').length}</a><a class="btn ${secondary?'primary':'ghost'}" href="#/second-pool">第二公海 ${available.filter(c=>c.pool_kind==='secondary').length}</a><button class="ghost" id="myPoolHistory">我的退回记录</button><button class="ghost" id="poolRefresh">刷新</button></div></div>
       <section class="card pad"><p>${secondary?'这里是业务员主动退回的客户，可查看原因后重新领取。':'这里是尚未分配的客户，可领取后开始跟进。'} 无效客户留在无效客户组。领取采用服务器锁定，先领取成功者获得归属。</p><label>搜索公司、国家、产品或退回原因<input id="poolSearch" value="${esc(filter)}"></label>
       ${useBatch?UI.batchTools(actions):''}</section>
-      <section class="card tbl"><table><thead><tr><th>选择</th><th>公司</th><th>国家 / 城市</th><th>产品</th>${secondary?'<th>退回说明</th>':''}<th>操作</th></tr></thead><tbody>${paged.map(c=>`<tr><td>${useBatch?UI.batchCheckbox(c.id,c.company_name):''}</td><td><a href="#/client/${esc(c.id)}">${esc(c.company_name)}</a><p class="muted small">${esc(U.domain(c.website))}</p></td><td>${esc([c.country,c.city].filter(Boolean).join(' / '))}</td><td>${UI.chips(c.products)}</td>${secondary?`<td>${esc(c.return_reason)}<p class="muted small">${esc(UI.userName(c.previous_owner))} · ${esc((c.returned_at||'').slice(0,10))}</p></td>`:''}<td>${!admin?`<button class="primary sm" data-pool-claim="${esc(c.id)}">领取为我的客户</button>`:''}<button class="ghost sm" data-pool-history="${esc(c.id)}">流转记录</button></td></tr>`).join('')||'<tr><td colspan="6">暂无符合条件的客户</td></tr>'}</tbody></table></section>
+      <section class="card tbl"><table><thead><tr><th>选择</th><th>公司</th><th>国家 / 城市</th><th>产品</th><th>最近退回</th><th>操作</th></tr></thead><tbody>${paged.map(c=>`<tr><td>${useBatch?UI.batchCheckbox(c.id,c.company_name):''}</td><td><a href="#/client/${esc(c.id)}">${esc(c.company_name)}</a><p class="muted small">${esc(U.domain(c.website))}</p></td><td>${esc([c.country,c.city].filter(Boolean).join(' / '))}</td><td>${UI.chips(c.products)}</td><td>${c.returned_at?`${c.previous_owner===UI.ME.id?'<strong>我曾跟进 · </strong>':''}${esc(c.return_reason||'已退回')}<p class="muted small">${esc(UI.userName(c.previous_owner))} · ${esc(poolDate(c.returned_at))}</p>`:'—'}</td><td>${!admin?`<button class="primary sm" data-pool-claim="${esc(c.id)}">领取为我的客户</button>`:''}<button class="ghost sm" data-pool-history="${esc(c.id)}">流转记录</button></td></tr>`).join('')||'<tr><td colspan="6">暂无符合条件的客户</td></tr>'}</tbody></table></section>
       <div class="actions"><button class="ghost" id="poolPrev" ${page===0?'disabled':''}>上一页</button><span>${page+1} / ${Math.max(1,Math.ceil(list.length/50))}</span><button class="ghost" id="poolNext" ${(page+1)*50>=list.length?'disabled':''}>下一页</button></div>`,secondary?'second-pool':'pool');
+    $('#myPoolHistory').onclick=myHistory;
     $('#poolSearch').onchange=e=>{filter=e.target.value;page=0;drawPool(kind,canArchive);};
     const current=(UI.viewCurrent?.() || (() => true));
     const refresh=async()=>{await UI.refresh();if(current())await pool(kind);};
     $('#poolRefresh').onclick=()=>{UI.archiveVisible?.clear();return refresh().catch(e=>UI.toast(e.message,true));};
     $('#poolPrev').onclick=()=>{page--;drawPool(kind,canArchive);}; $('#poolNext').onclick=()=>{page++;drawPool(kind,canArchive);};
     $$('[data-pool-history]').forEach(b=>b.onclick=()=>history(b.dataset.poolHistory));
-    $$('[data-pool-claim]').forEach(b=>b.onclick=async()=>{b.disabled=true;try {await DB.claimClient(b.dataset.poolClaim);await refresh();UI.toast('领取成功，可在客户列表查看');}catch(e){UI.toast(e.message,1);await refresh().catch(error=>UI.toast(error.message,true));}});
+    $$('[data-pool-claim]').forEach(b=>b.onclick=async()=>{const c=paged.find(row=>row.id===b.dataset.poolClaim);
+      if(c?.previous_owner===UI.ME.id&&!confirm('你之前跟进过这个客户。请核对流转记录后确认是否重新领取。'))return;
+      b.disabled=true;try {await DB.claimClient(b.dataset.poolClaim);await refresh();UI.toast('领取成功，可在客户列表查看');}catch(e){UI.toast(e.message,1);await refresh().catch(error=>UI.toast(error.message,true));}});
     if(!useBatch)return;
     UI.bindBatch({selected,ids:list.map(c=>c.id),pageIds:paged.map(c=>c.id)});
     $$('[data-batch-action]').forEach(button=>button.onclick=()=>{
       const action=button.dataset.batchAction;
       const items=list.filter(c=>selected.has(c.id)).map(c=>({id:c.id,label:c.company_name}));
       const fields=action==='assign'?`<label>新负责人<select name="owner" required>${opt('','请选择','')}${UI.USERS.filter(u=>u.active).map(u=>opt(u.id,u.full_name,'')).join('')}</select></label>`:'';
-      UI.batchAction({title:({assign:'批量分配并移出公海',claim:'批量领取',trash:'批量移入回收站'})[action],items,fields,
+      const previouslyOwned=list.filter(c=>selected.has(c.id)&&c.previous_owner===UI.ME.id).length;
+      UI.batchAction({description:action==='claim'&&previouslyOwned?`所选有 ${previouslyOwned} 家曾由你跟进，请先查看流转记录再确认重新领取。`:'',
+        title:({assign:'批量分配并移出公海',claim:'批量领取',trash:'批量移入回收站'})[action],items,fields,
         apply:async({id},values)=>{
           if(action==='claim')return DB.claimClient(id);
           if(action==='trash'){
@@ -100,7 +116,7 @@
   UI.shell=(inner,active)=>shell(inner,active).replace(/(<a href="#\/pool"[^>]*>[\s\S]*?<\/a>)/,`$1<a href="#/second-pool" class="${active==='second-pool'?'on':''}">第二公海 <small>Returned</small></a>`);
   const detail=UI.views.client.render;
   UI.views.client.render=async id=>{const current=(UI.viewCurrent?.() || (() => true));await detail(id);if(!current())return;const c=UI.CLIENTS.find(x=>x.id===id),target=document.querySelector('.hero .quick');if(!c||!target)return;
-    if(c.owner_id&&(UI.ME.role==='admin'||c.owner_id===UI.ME.id)&&!UI.isInvalid(c)){const b=document.createElement('button');b.className='btn ghost';b.textContent='退回第二公海';b.onclick=()=>release(c);target.append(b);}
+    if(c.owner_id&&c.status!=='成交'&&(UI.ME.role==='admin'||c.owner_id===UI.ME.id)&&!UI.isInvalid(c)){const b=document.createElement('button');b.className='btn ghost';b.textContent='退回第二公海';b.onclick=()=>release(c);target.append(b);}
     const b=document.createElement('button');b.className='btn ghost';b.textContent='领取 / 退回记录';b.onclick=()=>history(id);target.append(b);
   };
 })();
