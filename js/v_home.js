@@ -55,7 +55,7 @@
         s: samples.filter(s => s.author_id === u.id && (s.sent_date || '') >= UI.today(-29)).length, stale: stale.filter(c => c.owner_id === u.id).length }; });
     const pool = all.filter(c => !c.owner_id).length;
     const byCountry = Object.entries(all.reduce((m, c) => (m[c.country || '—'] = (m[c.country || '—'] || 0) + 1, m), {})).sort((a, b) => b[1] - a[1]);
-    UI.render(`<div class="pagehead"><h1>团队看板 <small>Team dashboard</small></h1><div class="actions"><a class="btn ghost" href="#/pool">🌊 公海 ${pool}</a><a class="btn ghost" href="#/admin">⚙️ 管理</a></div></div>
+    UI.render(`<div class="pagehead"><h1>团队看板 <small>Team dashboard</small></h1><div class="actions"><a class="btn ghost" href="#/pool">🌊 谷歌客户公海 ${pool}</a><a class="btn ghost" href="#/admin">⚙️ 管理</a></div></div>
       <section class="kpis k5"><div class="kpi"><b>${all.length}</b><span>客户总数 Clients</span></div><div class="kpi"><b>${pool}</b><span>公海未分配 Pool</span></div>
         <div class="kpi"><b>${logs.filter(l => l.entry_date >= wk).length}</b><span>本周跟进 Activities 7d</span></div><div class="kpi"><b>${quotes.filter(q => q.quote_date >= UI.today(-29)).length}</b><span>30天报价 Quotes</span></div>
         <div class="kpi warn"><b>${UI.overdue(all).length}</b><span>全队逾期 Overdue</span></div></section>

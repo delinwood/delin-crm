@@ -47,7 +47,7 @@
   const NAV = [
     ['reminders','#/reminders','⏰','闹钟事项','My reminders','','个人安排'],
     ['home','#/home','🏠','工作台','Today','','概览'],
-    ['list','#/list','📇','客户管理','Clients','','客户开发'],['pool','#/pool','🌊','公海客户','Pool','','客户开发'],['invalid','#/invalid','📁','无效客户','Invalid','','客户开发'],
+    ['list','#/list','📇','客户管理','Clients','','客户开发'],['pool','#/pool','🌊','谷歌客户公海','Google Lead Pool','','客户开发'],['invalid','#/invalid','📁','无效客户','Invalid','','客户开发'],
     ['prospect','#/prospect','🔎','找客户','Prospecting','','获客工具'],['markets','#/markets','🌍','目标市场','Markets','','获客工具'],['agent','#/ai','🤖','智能助手','Assistant','','获客工具'],
     ['mail','#/mail','📨','邮件中心','Email','','沟通跟进'],['email-reminders','#/email-reminders','⏰','跟进提醒','Reminders','','沟通跟进'],['templates','#/templates','✉️','话术模板','Templates','','沟通跟进'],
     ['business','#/business','📈','业务工作台','Business','','业务与培训'],['learning','#/learning','📚','学习中心','Learning','','业务与培训'],

@@ -32,7 +32,7 @@
   async function prospect() {
     const admin = UI.ME.role === 'admin', L = links(P.country, P.group), m = (window.MARKETS || []).find(x => x.country === P.country);
     const block = (title, arr) => `<div class="lgroup"><h3>${title}</h3>${arr.map(([t, u]) => `<a class="lbtn" href="${esc(u)}" target="_blank" rel="noopener">${esc(t)} ↗</a>`).join('')}</div>`;
-    UI.render(`<div class="pagehead"><h1>找客户 <small>Prospecting</small></h1><div class="actions">${admin ? '<a class="btn ghost" href="#/pool">🌊 公海 Lead pool</a>' : ''}<a class="btn ghost" href="#/markets">🌍 目标市场</a></div></div>
+    UI.render(`<div class="pagehead"><h1>找客户 <small>Prospecting</small></h1><div class="actions">${admin ? '<a class="btn ghost" href="#/pool">🌊 谷歌客户公海</a>' : ''}<a class="btn ghost" href="#/markets">🌍 目标市场</a></div></div>
       <section class="card pad"><h2>自动获客</h2><p>选择国家、城市和产品，让服务器搜索公开公司网站、读取产品及B端业务证据、整理联系方式。结果先进入候选名单，核实并查重后再导入客户；不会自动发送邮件。</p><a class="btn primary" href="#/discovery">进入自动获客工作台 →</a></section>
       <div class="grid2 wide-left"><section class="card pad">
         <h2>① 搜索启动器 <small>Search launcher — 自动生成当地语言关键词</small></h2>
