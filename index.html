@@ -20,7 +20,7 @@
     var s = [];
     if (CRM_CONFIG.MODE === 'supabase') s.push('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js');
     else s.push('js/seed.js');
-    s.push('js/markets.js', 'js/templates.js', 'js/data.js?v=20261104-abcd', 'js/core.js?v=20261107-responsive', 'js/batch.js?v=20261107', 'js/followup.js?v=20261107-chase', 'js/mail-merge.js', 'js/v_clients.js?v=20261107-responsive', 'js/v_home.js?v=20261107-google-pool', 'js/v_prospect.js?v=20261107-google-pool', 'js/v_tools.js?v=20261104-abcd', 'js/v_mail.js?v=20261104-abcd', 'js/v_pool.js?v=20261107-responsive', 'js/v_business.js', 'js/v_recovery.js?v=20261107-batch', 'js/v_research.js', 'js/v_inbound.js', 'js/v_discovery.js?v=20261104-abcd', 'js/v_agent.js', 'js/v_learning.js?v=20261104-abcd', 'js/v_ai.js?v=20261028-chat', 'js/v_reminders.js', 'js/v_social.js?v=20261107-responsive');
+    s.push('js/markets.js', 'js/templates.js', 'js/data.js?v=20261107-workflow', 'js/core.js?v=20261107-workflow', 'js/batch.js?v=20261107', 'js/followup.js?v=20261107-chase', 'js/mail-merge.js', 'js/v_clients.js?v=20261107-workflow', 'js/v_home.js?v=20261107-workflow', 'js/v_prospect.js?v=20261107-google-pool', 'js/v_tools.js?v=20261104-abcd', 'js/v_mail.js?v=20261107-workflow', 'js/v_pool.js?v=20261107-workflow', 'js/v_business.js', 'js/v_recovery.js?v=20261107-batch', 'js/v_research.js', 'js/v_inbound.js', 'js/v_discovery.js?v=20261104-abcd', 'js/v_agent.js', 'js/v_learning.js?v=20261104-abcd', 'js/v_ai.js?v=20261028-chat', 'js/v_reminders.js', 'js/v_social.js?v=20261107-responsive');
     // Download scripts concurrently while preserving their dependency order.
     var remaining = s.length;
     s.forEach(function (src) {
