@@ -5,12 +5,24 @@
     ['Hunter · 邮箱查找与验证','官网使用','查公司公开邮箱，或验证已经找到的邮箱。','免费版每月 50 积分；验证一次 0.5 积分，查找与验证共用。只做验证约 100 个／月。','https://hunter.io/email-verifier','打开 Hunter','https://help.hunter.io/en/articles/1970956-hunter-api'],
     ['Apollo · 找采购负责人','官网使用','按公司、职位找采购经理、品类经理和业务联系人。','查找和解锁资料的额度以登录账号为准。部分免费接口功能要求公司工作邮箱。','https://app.apollo.io/','打开 Apollo','https://docs.apollo.io/docs/developer-faqs'],
     ['Google 地图 · 核对地址','官网使用','用公司名加城市找门店、办公室或仓库。把地址和官网或企业登记资料对照。','打开普通地图不扣 CRM 积分。','https://www.google.com/maps','打开 Google 地图','https://developers.google.com/maps/documentation/urls/get-started'],
-    ['ImportYeti · 美国提单','官网使用','用公司名核对美国进口提单线索，确认货描和主体是否匹配。','网页按所登录账号权限查询；API 的提单明细消耗数据积分。','https://www.importyeti.com/','打开 ImportYeti','https://docs.importyeti.com/docs/reference'],
     ['OKKI／Volza · 采购记录','官网按权限查询','按公司核对采购产品、日期和供应商。各市场覆盖范围有差异。','可查范围以账号或套餐为准。CRM 未启用这两个接口的付费调用。','https://www.volza.com/','打开 Volza','https://www.volza.com/trade-intelligence-apis/'],
     ['D&B · 企业主体与信用','官网按权限查询','用法定名称或 D-U-N-S 编号核对企业主体。完整信用报告用于进一步审核。','主体查询与信用报告分开；完整报告权限和费用以官网为准。','https://my.dnb.com/lookup','打开 D&B 企业查询','https://www.dnb.com/content/dam/english/dnb-solutions/DNB_Using_DirectPlus_APIs.pdf'],
     ['ZoomInfo · 企业及决策人','官网按权限查询','按公司或职位补充负责人资料。','接口权限随订阅，未核实可长期使用的免费接口。','https://www.zoominfo.com/','打开 ZoomInfo','https://docs.gtm.ai/docs/overview']
   ];
   const external = (url,label) => `<a href="${esc(url)}" target="_blank" rel="noopener noreferrer">${esc(label)} ↗</a>`;
+  const customsQuery = company => String(company || '').replace(/\s+/g, ' ').trim().slice(0, 200);
+  const customsSites = [
+    { id: 'importyeti', name: 'ImportYeti', note: '美国海运提单，免费公司级', home: 'https://www.importyeti.com/', search: q => 'https://www.importyeti.com/search?q=' + encodeURIComponent(q) },
+    { id: 'portexaminer', name: 'PortExaminer', note: '美国提单明细，免登录（数据偏旧）', home: 'https://portexaminer.com/', search: q => 'https://portexaminer.com/search.php?search-field-1=consignee&search-term-1=' + encodeURIComponent(q) },
+    { id: 'cnudata', name: 'CNUData', note: '中东等免卡限次试查（沙特/阿联酋）', home: 'https://cnudata.com/' }
+  ];
+  UI.customsLinks = company => {
+    const q = customsQuery(company);
+    return `<div class="customs-links">${customsSites.map(site => {
+      const href = q && site.search ? site.search(q) : site.home;
+      return `<a class="btn ghost" data-customs="${site.id}" href="${esc(href)}" target="_blank" rel="noopener noreferrer"><b>${esc(site.name)}</b><small>${esc(site.note)}</small></a>`;
+    }).join('')}</div>`;
+  };
   const limits = {
     discovery: '自动获客按 Tavily Free → Firecrawl Free → SerpAPI Free → Brave Search 使用免费额度。一个来源用完就换下一个，不会自动付费。地板、墙板关键词和进口、分销、批发、工程采购筛选保持不变。',
     research: '已有官网用 Jina Reader 读取，不扣搜索积分，每家公司最多读 3 页。每批最多 10 家，每人每 24 小时最多 20 家；另选 Jina 公司搜索时，每家公司最多 1 次，全团队每月最多 100 个搜索任务。'
@@ -112,6 +124,11 @@
       <section class="card pad"><h2>先选你要核实的内容</h2><p>找新公司用自动获客；已经有公司名称或网址，用官网补资料。域名、邮箱、地址、采购和信用分开核对。</p>
       <p>CRM 额度用完后，可以直接打开外部工具，使用你已有权限的免费功能。同一个账号的网页版和接口可能共用额度，具体余额以官网为准。</p>
       <div class="actions"><a class="btn primary" href="#/discovery">按产品找新客户</a><a class="btn ghost" href="#/research">补充已有客户资料</a></div></section>
+      <section class="card pad" id="customsCheck"><h2>海关核验</h2>
+      <p>在新标签页打开免费海关网站。只是外链：不嵌入页面，不调用接口，不抓取数据。</p>
+      <label>公司名称（可选）<input id="customsCompany" maxlength="200" autocomplete="off" placeholder="留空则打开首页"></label>
+      <div id="customsLinks">${UI.customsLinks('')}</div>
+      <p class="muted small">有公司名时，ImportYeti 按公司名搜索，PortExaminer 按进口商名称搜索。CNUData 始终打开首页，请在站内选择沙特或阿联酋后查询。提单线索需人工核对，不能代替客户确认。查完后可把进口证据摘要、证据 URL、核实日记在客户的来源/核实说明里。</p></section>
       ${UI.lookupQuota('discovery')}${UI.lookupQuota('research')}
       <section class="card pad"><h2>RDAP · 域名注册核对 <small>免费公开查询</small></h2>
       <p>输入公开公司域名，查注册日期、到期日和状态。不扣 CRM 搜索积分。部分注册局限流或限制浏览器访问时，请用 ICANN 官网手动查。</p>
@@ -120,6 +137,8 @@
       <section class="card pad"><h2>外部查询工具</h2><div class="grid2">${tools.map(([name,mode,use,quota,url,link,docs])=>`<article class="card pad"><h3>${esc(name)} <small>${esc(mode)}</small></h3><p>${esc(use)}</p><p><b>额度</b> · ${esc(quota)}</p><div class="actions">${external(url,link)}${name.startsWith('OKKI')?external('https://www.okki.com/','打开 OKKI'):''}${external(docs,'官方说明')}</div></article>`).join('')}</div></section>`,'lookup-tools');
     if(DB.mode==='demo') for(const el of document.querySelectorAll('[data-lookup-quota]')) el.textContent='演示环境没有正式 CRM 余额。';
     else UI.loadLookupQuota();
+    const customsCompany = $('#customsCompany'), customsLinks = $('#customsLinks');
+    if (customsCompany && customsLinks) customsCompany.oninput = () => { customsLinks.innerHTML = UI.customsLinks(customsCompany.value); };
     const form=$('#rdapForm'), status=$('#rdapStatus'), output=$('#rdapResult'), button=form.querySelector('button');
     form.onsubmit=async event=>{
       event.preventDefault();

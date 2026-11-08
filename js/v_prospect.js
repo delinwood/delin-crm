@@ -33,7 +33,7 @@
     const admin = UI.ME.role === 'admin', L = links(P.country, P.group), m = (window.MARKETS || []).find(x => x.country === P.country);
     const block = (title, arr) => `<div class="lgroup"><h3>${title}</h3>${arr.map(([t, u]) => `<a class="lbtn" href="${esc(u)}" target="_blank" rel="noopener">${esc(t)} ↗</a>`).join('')}</div>`;
     UI.render(`<div class="pagehead"><h1>找客户 <small>Prospecting</small></h1><div class="actions">${admin ? '<a class="btn ghost" href="#/pool">🌊 公海 Lead pool</a>' : ''}<a class="btn ghost" href="#/markets">🌍 目标市场</a></div></div>
-      <section class="card pad"><h2>客户核实工具与免费额度</h2><p>查官网、域名、邮箱、采购负责人、地址、海关提单和企业信用。每个工具说明适用场景、额度和官网用法。</p><a class="btn primary" href="#/lookup-tools">打开客户核实工具</a></section>
+      <section class="card pad"><h2>客户核实工具与免费额度</h2><p>查官网、域名、邮箱、采购负责人、地址、海关提单和企业信用。每个工具说明适用场景、额度和官网用法。</p><p class="muted small">海关核验只打开 ImportYeti、PortExaminer、CNUData。外链在新标签页打开，不嵌入、不调用接口。</p><a class="btn primary" href="#/lookup-tools">打开客户核实工具</a></section>
       <section class="card pad"><h2>自动获客</h2><p>选择国家、城市和产品，让服务器搜索公开公司网站、读取产品及B端业务证据、整理联系方式。结果先进入候选名单，核实并查重后再导入客户；不会自动发送邮件。</p><a class="btn primary" href="#/discovery">进入自动获客工作台 →</a></section>
       <div class="grid2 wide-left"><section class="card pad">
         <h2>① 搜索启动器 <small>Search launcher — 自动生成当地语言关键词</small></h2>

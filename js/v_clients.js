@@ -232,6 +232,7 @@
           <h3>采购联系人 Purchasing contact</h3>${kv('姓名 Name', esc(c.contact_name))}${kv('职位 Title', esc(c.contact_title))}${kv('LinkedIn', c.contact_linkedin ? UI.link(UI.url(c.contact_linkedin), c.contact_linkedin) : '')}
           <h3>业务 Business</h3>${c.status==='成交' ? kv('成交说明',esc(c.deal_note||'历史成交客户，请在编辑资料中补填')) : ''}${kv('客户标记', UI.attentionControl(c))}${kv('无效原因', esc(c.invalid_reason || ''))}${kv('追单提醒', esc(UI.emailDueDate(c)) + ' ' + UI.chaseButton(c))}${kv('匹配产品 Products', `<div class="chips">${UI.chips(c.products)}</div>`)}${kv('标签 Tags', UI.tags(c.tags))}${kv('Apollo 搜索条件', esc(c.apollo_criteria))}
           ${kv('备注 Notes', esc(c.notes).replace(/\n/g, '<br>'))}${kv('来源/核实 Source', esc(c.source_note).replace(/(https?:\/\/[^\s;,)]+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>'))}
+          <h3>海关核验 <small>Customs check</small></h3><p class="muted small">新标签页打开免费网站，不嵌入、不调用接口。有公司名时 ImportYeti、PortExaminer 会带上公司名；CNUData 打开首页。进口证据摘要、证据 URL、核实日写在来源/核实说明。</p>${UI.customsLinks?.(c.company_name) || ''}
           ${kv('创建 Created', esc((c.created_at || '').slice(0, 10)) + ' · ' + esc(UI.userName(c.created_by)))}
         </section></div>
         <div><section class="card pad">
@@ -320,7 +321,7 @@
       <label>Apollo 搜索条件 Apollo search criteria<textarea name="apollo_criteria" rows="2">${esc(c.apollo_criteria || '')}</textarea></label>
       <label id="dealNote" hidden>成交说明<textarea name="deal_note" rows="2" maxlength="2000" placeholder="写明成交产品、订单编号或日期，以及后续补货安排">${esc(c.deal_note || '')}</textarea></label>
       <label>备注 Notes<textarea name="notes" rows="3">${esc(c.notes || '')}</textarea></label>
-      <label>来源/核实说明 Source / verification<textarea name="source_note" rows="2">${esc(c.source_note || '')}</textarea></label>
+      <label>来源/核实说明 Source / verification<textarea name="source_note" rows="2" placeholder="进口证据摘要、证据 URL、核实日">${esc(c.source_note || '')}</textarea></label>
       <div class="warn" id="uswarn" hidden>⚠️ 美国市场不推强化/实木复合地板 (USA: no laminate / engineered)</div>
       <div class="actions"><button class="primary">保存 Save</button></div></form>`, isNew ? 'list' : 'list');
     const f = $('#cf'), chk = () => { $('#uswarn').hidden = !(/^(usa|us|united states)$/i.test(f.country.value.trim()) && [...f.querySelectorAll('[name=products]:checked')].some(x => C.US_EXCLUDED.includes(x.value))); };
