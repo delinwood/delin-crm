@@ -12,26 +12,66 @@
   ];
   const external = (url,label) => `<a href="${esc(url)}" target="_blank" rel="noopener noreferrer">${esc(label)} ↗</a>`;
   const limits = {
-    discovery: 'Tavily 基础搜索 1 积分／次，每项任务最多 6 次。免费计划 1,000 积分／月，CRM 团队上限 900 次搜索尝试／月。',
-    research: '已有官网用 Jina Reader 读取，不扣 Tavily 积分，每家公司最多读 3 页。每批最多 10 家，每人每 24 小时最多 20 家；另选 Jina 公司搜索时，每家公司最多 1 次，全团队每月最多 100 个搜索任务。'
+    discovery: '自动获客按 Tavily Free → Firecrawl Free → SerpAPI Free → Brave Search 使用免费额度。一个来源用完就换下一个，不会自动付费。地板、墙板关键词和进口、分销、批发、工程采购筛选保持不变。',
+    research: '已有官网用 Jina Reader 读取，不扣搜索积分，每家公司最多读 3 页。每批最多 10 家，每人每 24 小时最多 20 家；另选 Jina 公司搜索时，每家公司最多 1 次，全团队每月最多 100 个搜索任务。'
   };
+  function discoveryLines(quota, status) {
+    const head = '免费源用完自动切换；不会自动付费。';
+    const rows = Array.isArray(quota?.discovery_providers) ? quota.discovery_providers.filter(item => item && item.in_failover !== false) : [];
+    const live = new Map((status?.providers || []).filter(item => item && item.id).map(item => [item.id, item]));
+    if (!rows.length) {
+      const left = quota?.discovery_remaining, cap = quota?.discovery_cap;
+      if (!Number.isSafeInteger(left) || left < 0 || (cap != null && (!Number.isSafeInteger(cap) || cap < left))) throw Error('额度格式不可用');
+      return [head, `Tavily Free：剩余 ${left}${Number.isSafeInteger(cap) ? '／' + cap : ''} 次`];
+    }
+    const lines = [head, ...rows.map(item => {
+      const remote = live.get(item.id);
+      const name = String(item.name || item.id);
+      if (remote?.configured === false) return name + '：未配置';
+      let remaining = Number.isSafeInteger(item.remaining) ? item.remaining : null;
+      const limit = Number.isSafeInteger(item.limit) ? item.limit : null;
+      if (remote && Number.isSafeInteger(remote.remaining)) remaining = remaining == null ? remote.remaining : Math.min(remaining, remote.remaining);
+      if (item.exhausted === true || remote?.state === 'exhausted' || remaining === 0) return name + '：已用尽';
+      if (!Number.isSafeInteger(remaining) || remaining < 0 || (limit != null && remaining > limit)) return remote?.configured ? name + '：已连接，剩余次数待核对' : name + '：未配置';
+      const brave = item.id === 'brave' && remote?.persistsResults === false ? '（摘录不入库，仅当次排序）' : '';
+      return `${name}：剩余 ${remaining}${limit != null ? '／' + limit : ''} ${item.unit === '积分' ? '积分' : '次'}${brave}`;
+    })];
+    if (!status) lines.push('供应商是否已配置暂时读不到；没有密钥的来源不会被调用。');
+    return lines;
+  }
+  UI.discoveryQuotaLines = discoveryLines;
   UI.lookupQuota = kind => `<section class="card pad"><h3>本次使用的额度</h3><p>${limits[kind]}</p>
     <p data-lookup-quota="${kind}" role="status">正在读取 CRM 剩余次数…</p>
     <p class="muted small">CRM 次数和供应商账号积分分别计算。供应商余额请在对应官网账号查看，官网和接口使用同一账号时可能共用额度。</p>
     <div class="actions"><a href="#/lookup-tools">客户核实工具与额度说明</a>
     ${kind==='discovery'?external('https://app.tavily.com/','打开 Tavily 查余额'):external('https://jina.ai/reader/','打开 Jina Reader 官网')}</div></section>`;
-  UI.loadLookupQuota = async () => {
+  UI.loadLookupQuota = async (knownStatus) => {
     const nodes = [...document.querySelectorAll('[data-lookup-quota]')];
     if (!nodes.length) return;
+    const wantsDiscovery = nodes.some(el => el.dataset.lookupQuota === 'discovery');
     try {
+      let status = knownStatus?.providers ? knownStatus : null;
+      if (wantsDiscovery && !status) {
+        try {
+          const response = await DB.init().functions.invoke('crm-mail', { body: { action: 'status' } });
+          status = response.error || response.data?.error ? null : response.data?.discovery || null;
+        } catch { status = null; }
+      }
       const quota = DB.chk(await DB.init().rpc('crm_lookup_quota'));
       for (const el of nodes) if (el.isConnected) {
         const discovery = el.dataset.lookupQuota==='discovery';
-        const counts = discovery?[quota.discovery_remaining]:[quota.research_daily_remaining,quota.research_search_remaining];
-        if (!counts.every(n=>Number.isSafeInteger(n)&&n>=0)) throw Error('额度格式不可用');
-        el.textContent = discovery
-          ? `CRM 团队本月剩余 ${counts[0]}／900 次搜索尝试（按 UTC 月份）。`
-          : `本人近 24 小时可再提交 ${counts[0]}／20 家；团队本月剩余 ${counts[1]}／100 个公司搜索任务。`;
+        if (!discovery) {
+          const counts = [quota.research_daily_remaining, quota.research_search_remaining];
+          if (!counts.every(n => Number.isSafeInteger(n) && n >= 0)) throw Error('额度格式不可用');
+          el.textContent = `本人近 24 小时可再提交 ${counts[0]}／20 家；团队本月剩余 ${counts[1]}／100 个公司搜索任务。`;
+          continue;
+        }
+        const lines = discoveryLines(quota, status);
+        el.replaceChildren();
+        lines.forEach((line, index) => {
+          if (index) el.append(document.createElement('br'));
+          el.append(document.createTextNode(line));
+        });
       }
     } catch {
       for (const el of nodes) if (el.isConnected) el.textContent='暂时读不到 CRM 剩余次数，请刷新后查看。';

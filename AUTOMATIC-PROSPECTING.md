@@ -13,13 +13,17 @@
 
 ## 免费服务约束
 
-- 搜索：Tavily Basic Search，明确关闭自动参数、AI答案和原始全文；每次1积分，最多20个网页结果。
-- 只传产品、国家、城市、买家类型；不传CRM内部资料、Gmail内容或员工授权令牌。
+- 搜索顺序：Tavily Free → Firecrawl Free → SerpAPI Free → Brave Search。只走已配置且仍有免费额度的来源。某一个免费额度用尽后，同一条查询改用下一个来源。不会自动付费，不会自动充值。
+- Tavily 仍是主源：Basic Search，关闭自动参数、AI 答案和原始全文。沿用 `/usage` 核对：Researcher/Free、`plan_limit` 不超过 1000、`paygo_limit` 与 `paygo_usage` 按现有规则视为 0。公司月度尝试上限不在本文件写死，迁移会读取当时已经安装的 `crm_discovery_claim`（主线目前是 900；若已先执行把上限改为 980 的迁移，则沿用 980）。
+- Firecrawl 只接受免费计划（`planCredits` 不超过 1000，且余额不超过该额度）。搜索 10 条按 2 积分计入，不附带付费抓取选项。官网读取仍先用 Jina；Jina 失败时才用 Firecrawl 免费抓取一页，按 1 积分计入。
+- SerpAPI 只接受免费计划（月费为 0、每月不超过 250 次、计划名称含 Free）。`plan_searches_left` 用尽后停止，即使账户里还有增购次数也不调用。
+- Brave 只按约 1000 次免费查询计入。CRM 不调用充值或自动续费接口；账户侧的 auto-reload 必须保持关闭。`BRAVE_STORAGE_RIGHTS_OK` 不是 `true` 时，Brave 摘录、标题和原文证据不写入候选表，只在当次内存里参与排序并保留网址。
+- SearXNG 只在 `crm_search_providers` 留注册位，`in_failover=false`，本版不请求。Companies House 不是发现搜索源，不在切换链里。
+- 只传产品、国家、城市、买家类型；不传CRM内部资料、Gmail内容或员工授权令牌。地板和墙板关键词、进口商/分销商/批发商/工程采购商筛选不变。
 - 网页：复用Jina免密钥Reader及Google公开DNS的安全读取，仅处理公开网页，禁止内网、IP、短链、社交登录、文件、账号页面和带查询参数的网址。
-- 本版本只接受Tavily Researcher/Free、计划不超过1000积分且paygo_limit/paygo_usage为0的账号；每次实际搜索前核对usage。未知格式、超额、授权错误和无法核对时停止。
-- 系统全体账号UTC自然月最多900次搜索尝试；账号滚动24小时最多10个任务、3个未完成任务。保留尝试不等于服务商确认扣费。
+- 账号滚动24小时最多10个任务、3个未完成任务。保留尝试不等于服务商确认扣费。
 - 持久化预约外部请求；超时或进程中断不重复搜索。用户可暂停、继续、取消；已经提交的请求无法撤销，来源保留。
-- 不创建自动充值，不绑定卡，不购买额度，不自动选择付费后备服务。免费积分是搜索次数额度，不保证有效客户数量。
+- 不创建自动充值，不绑定卡，不购买额度，不自动选择付费后备服务。免费额度不保证有效客户数量。
 
 ## 部署顺序
 
@@ -27,8 +31,15 @@
 2. 发布现有 `crm-mail` 函数，包含 `discovery.ts`、`research.ts`、`inbound.ts` 和共享邮件合并代码。使用控制台单文件编辑器时，需先合并模块；不要将API密钥写入部署源码。
 3. 现有Mail worker每分钟处理一阶段获客任务；现有收发信和权限保持。新搜索默认关闭。
 4. 发布 `js/v_discovery.js`、`js/v_prospect.js` 和 `index.html`。保留原有其他脚本。
-5. 老板自行完成Tavily免费账号登录/条款同意。确认无卡、无paygo，用独立密钥配置Supabase服务器 `TAVILY_API_KEY` 与 `TAVILY_FREE_SEARCH_ENABLED=true`。密钥不能写入Git、网页或浏览器存储；不更改Gmail权限。
-6. 检查Pages部署状态及实际「找客户 → 自动获客」入口。服务未配置时明确显示未连接，开始按钮禁用。
+5. 老板自行完成各免费账号的条款确认。密钥只放在 Supabase Edge Function 的环境变量里，不能写入 Git、网页或浏览器。不要打开任何自动充值。Brave 账户如需绑卡，预充和 auto-reload 都保持关闭。需要的变量：
+   - 已有：`TAVILY_API_KEY`、`TAVILY_FREE_SEARCH_ENABLED=true`
+   - `FIRECRAWL_API_KEY`、`FIRECRAWL_FREE_SEARCH_ENABLED=true`
+   - `SERPAPI_API_KEY`、`SERPAPI_FREE_SEARCH_ENABLED=true`
+   - `BRAVE_SEARCH_API_KEY`、`BRAVE_FREE_SEARCH_ENABLED=true`
+   - `BRAVE_STORAGE_RIGHTS_OK=true` 才允许把 Brave 摘录写入 CRM；默认不设置或非 `true` 时不入库
+   只配置了密钥但开关不是 `true` 时，该来源显示为未配置，不会被调用。
+6. 检查Pages部署状态及实际「找客户 → 自动获客」入口。服务未配置时明确显示未连接，开始按钮禁用。主源用尽但备用源仍有免费额度时，开始按钮仍可使用。
+7. 本功能的数据库迁移是 `supabase/migrations/20261108030000_free_search_failover.sql`。在老板批准前不要对生产库执行，也不要为此发布边缘函数或页面。若另有把 Tavily 月度上限改为 980 的迁移，先执行那一版，再执行本迁移，这样上限会被读出来并保留。不要在本迁移之后再执行会整段覆盖 `crm_discovery_claim` 的旧脚本。
 
 官方参考（2026-10-23核对）：
 - https://www.tavily.com/pricing

@@ -315,7 +315,7 @@ Deno.serve(async req => {
         limits = [...accounts.filter((x: any) => !preferences.some((p: any) => p.user_id === x.user_id)), ...preferences];
       }
       const research = researchCapabilities();
-      return json({ account: a, daily_limit: saved?.daily_limit ?? a?.daily_limit ?? 50, limits, configured: true, read_available: readAvailable(), research: { website: research.reader, search: research.search }, discovery: discoveryCapabilities() });
+      return json({ account: a, daily_limit: saved?.daily_limit ?? a?.daily_limit ?? 50, limits, configured: true, read_available: readAvailable(), research: { website: research.reader, search: research.search }, discovery: await discoveryCapabilities(db) });
     }
     if (input.action === 'sync') {
       if (!readAvailable()) throw new Error('邮件同步尚未启用，当前没有读取邮箱');
