@@ -1,27 +1,83 @@
 /* Public business verification tools and CRM quota display. */
 (function () {
   const {esc,$} = UI;
-  const tools = [
-    ['Hunter · 邮箱查找与验证','官网使用','查公司公开邮箱，或验证已经找到的邮箱。','免费版每月 50 积分；验证一次 0.5 积分，查找与验证共用。只做验证约 100 个／月。','https://hunter.io/email-verifier','打开 Hunter','https://help.hunter.io/en/articles/1970956-hunter-api'],
-    ['Apollo · 找采购负责人','官网使用','按公司、职位找采购经理、品类经理和业务联系人。','查找和解锁资料的额度以登录账号为准。部分免费接口功能要求公司工作邮箱。','https://app.apollo.io/','打开 Apollo','https://docs.apollo.io/docs/developer-faqs'],
-    ['Google 地图 · 核对地址','官网使用','用公司名加城市找门店、办公室或仓库。把地址和官网或企业登记资料对照。','打开普通地图不扣 CRM 积分。','https://www.google.com/maps','打开 Google 地图','https://developers.google.com/maps/documentation/urls/get-started'],
-    ['OKKI／Volza · 采购记录','官网按权限查询','按公司核对采购产品、日期和供应商。各市场覆盖范围有差异。','可查范围以账号或套餐为准。CRM 未启用这两个接口的付费调用。','https://www.volza.com/','打开 Volza','https://www.volza.com/trade-intelligence-apis/'],
-    ['D&B · 企业主体与信用','官网按权限查询','用法定名称或 D-U-N-S 编号核对企业主体。完整信用报告用于进一步审核。','主体查询与信用报告分开；完整报告权限和费用以官网为准。','https://my.dnb.com/lookup','打开 D&B 企业查询','https://www.dnb.com/content/dam/english/dnb-solutions/DNB_Using_DirectPlus_APIs.pdf'],
-    ['ZoomInfo · 企业及决策人','官网按权限查询','按公司或职位补充负责人资料。','接口权限随订阅，未核实可长期使用的免费接口。','https://www.zoominfo.com/','打开 ZoomInfo','https://docs.gtm.ai/docs/overview']
+  const directTools = [
+    { name: 'Hunter · 邮箱查找与验证', mode: '官网使用', use: '查公司公开邮箱，或验证已经找到的邮箱。填写上方网站或域名后，打开 Hunter 会进入该公司的域名搜索；未填则打开首页。', quota: '免费版每月 50 积分；验证一次 0.5 积分，查找与验证共用。只做验证约 100 个／月。CRM 不调用接口、不保存密钥。', links: [
+      { id: 'hunter', label: '打开 Hunter', href: 'https://hunter.io/' },
+      { label: '打开邮箱验证', href: 'https://hunter.io/email-verifier' },
+      { label: '官方说明', href: 'https://help.hunter.io/en/articles/1970956-hunter-api' }
+    ]},
+    { name: 'Google 地图 · 核对地址', mode: '官网使用', use: '用公司名找门店、办公室或仓库，再和官网或企业登记对照。填写上方公司名后按该公司搜索；未填则打开地图首页。', quota: '打开普通地图不扣 CRM 积分。', links: [
+      { id: 'maps', label: '打开 Google 地图', href: 'https://www.google.com/maps' },
+      { label: '官方说明', href: 'https://developers.google.com/maps/documentation/urls/get-started' }
+    ]},
+    { name: 'OKKI · 采购记录', mode: '官网首页', use: '在 OKKI 官网核对采购线索。这里只打开首页，请在站内继续查询。', quota: '可查范围以账号为准。CRM 不调用 OKKI 接口。', links: [
+      { label: '打开 OKKI', href: 'https://www.okki.com/' }
+    ]}
   ];
-  const external = (url,label) => `<a href="${esc(url)}" target="_blank" rel="noopener noreferrer">${esc(label)} ↗</a>`;
-  const customsQuery = company => String(company || '').replace(/\s+/g, ' ').trim().slice(0, 200);
+  const accountTools = [
+    { name: 'Apollo · 找采购负责人', mode: '需账号', use: '按公司、职位找采购经理、品类经理和业务联系人。', quota: '查找和解锁资料的额度以登录账号为准。部分免费接口功能要求公司工作邮箱。按钮只打开官网，CRM 不代查。', links: [
+      { label: '打开 Apollo', href: 'https://app.apollo.io/' },
+      { label: '官方说明', href: 'https://docs.apollo.io/docs/developer-faqs' }
+    ]},
+    { name: 'Volza · 采购记录', mode: '需账号', use: '按公司核对采购产品、日期和供应商。各市场覆盖范围有差异。', quota: '可查范围以账号或套餐为准。CRM 未启用付费接口。', links: [
+      { label: '打开 Volza', href: 'https://www.volza.com/' },
+      { label: '官方说明', href: 'https://www.volza.com/trade-intelligence-apis/' }
+    ]},
+    { name: 'D&B · 企业主体与信用', mode: '需账号', use: '用法定名称或 D-U-N-S 编号核对企业主体。完整信用报告用于进一步审核。', quota: '主体查询与信用报告分开；完整报告权限和费用以官网为准。', links: [
+      { label: '打开 D&B 企业查询', href: 'https://my.dnb.com/lookup' },
+      { label: '官方说明', href: 'https://www.dnb.com/content/dam/english/dnb-solutions/DNB_Using_DirectPlus_APIs.pdf' }
+    ]},
+    { name: 'ZoomInfo · 企业及决策人', mode: '需账号', use: '按公司或职位补充负责人资料。', quota: '接口权限随订阅，未核实可长期使用的免费接口。按钮只打开官网，CRM 不代查。', links: [
+      { label: '打开 ZoomInfo', href: 'https://www.zoominfo.com/' },
+      { label: '官方说明', href: 'https://docs.gtm.ai/docs/overview' }
+    ]}
+  ];
+  const external = (url, label, id) => `<a class="btn ghost" href="${esc(url)}"${id ? ` data-tool-link="${esc(id)}"` : ''} target="_blank" rel="noopener noreferrer">${esc(label)} ↗</a>`;
+  const toolCard = tool => `<article class="card pad"><h3>${esc(tool.name)} <small>${esc(tool.mode)}</small></h3><p>${esc(tool.use)}</p><p><b>额度</b> · ${esc(tool.quota)}</p><div class="actions">${tool.links.map(link => external(link.href, link.label, link.id)).join('')}</div></article>`;
+  const companyQuery = value => String(value || '').replace(/\s+/g, ' ').trim().slice(0, 200);
+  const mapsHome = 'https://www.google.com/maps';
+  const mapsSearch = q => 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(q);
+  const stackLinks = (sites, hrefFor, attr, showUrl) => `<div class="customs-links">${sites.map(site => {
+    const href = hrefFor(site);
+    return `<a class="btn ghost" ${attr}="${esc(site.id)}" href="${esc(href)}" target="_blank" rel="noopener noreferrer"><b>${esc(site.name)}</b><small>${esc(site.note)}</small>${showUrl ? `<small>${esc(href)}</small>` : ''}</a>`;
+  }).join('')}</div>`;
   const customsSites = [
     { id: 'importyeti', name: 'ImportYeti', note: '美国海运提单，免费公司级', home: 'https://www.importyeti.com/', search: q => 'https://www.importyeti.com/search?q=' + encodeURIComponent(q) },
     { id: 'portexaminer', name: 'PortExaminer', note: '美国提单明细，免登录（数据偏旧）', home: 'https://portexaminer.com/', search: q => 'https://portexaminer.com/search.php?search-field-1=consignee&search-term-1=' + encodeURIComponent(q) },
     { id: 'cnudata', name: 'CNUData', note: '中东等免卡限次试查（沙特/阿联酋）', home: 'https://cnudata.com/' }
   ];
+  const verifyCompanySites = [
+    { id: 'google', name: 'Google 搜索', note: '按公司名搜索公开网页', home: 'https://www.google.com/', search: q => 'https://www.google.com/search?q=' + encodeURIComponent(q) },
+    { id: 'maps', name: 'Google 地图', note: '按公司名找门店、办公室或仓库', home: mapsHome, search: mapsSearch },
+    { id: 'linkedin', name: 'LinkedIn 公司', note: '按公司名搜索公司页', home: 'https://www.linkedin.com/', search: q => 'https://www.linkedin.com/search/results/companies/?keywords=' + encodeURIComponent(q) },
+    { id: 'opencorporates', name: 'OpenCorporates', note: '全球企业登记检索', home: 'https://opencorporates.com/', search: q => 'https://opencorporates.com/companies?q=' + encodeURIComponent(q) },
+    { id: 'companies-house', name: '英国 Companies House', note: '英国公司注册处，按名称搜索', home: 'https://find-and-update.company-information.service.gov.uk/', search: q => 'https://find-and-update.company-information.service.gov.uk/search?q=' + encodeURIComponent(q) }
+  ];
+  const mideastSites = [
+    { id: 'cbls', name: '阿联酋 CBLS 经济登记', note: '官网首页，请在站内查询', home: 'https://cbls.economy.ae/' },
+    { id: 'saudi-cr', name: '沙特商业登记查询', note: '官网入口，请填写公司名或 CR', home: 'https://mc.gov.sa/en/pages/default.aspx' }
+  ];
+  function countryHint(country) {
+    const value = String(country || '').trim().toLowerCase();
+    if (value === 'united kingdom' || value === 'uk' || value === '英国' || value === 'gb') return '<p class="muted small">客户国家是英国，可优先打开 Companies House。</p>';
+    if (value === 'united arab emirates' || value === 'uae' || value === '阿联酋') return '<p class="muted small">客户国家是阿联酋，经济登记请用下方 CBLS 官网自行查询。</p>';
+    if (value === 'saudi arabia' || value === 'ksa' || value === '沙特' || value === '沙特阿拉伯') return '<p class="muted small">客户国家是沙特，请在下方商务部页面填写公司名或商业登记号 CR。</p>';
+    return '';
+  }
   UI.customsLinks = company => {
-    const q = customsQuery(company);
-    return `<div class="customs-links">${customsSites.map(site => {
-      const href = q && site.search ? site.search(q) : site.home;
-      return `<a class="btn ghost" data-customs="${site.id}" href="${esc(href)}" target="_blank" rel="noopener noreferrer"><b>${esc(site.name)}</b><small>${esc(site.note)}</small></a>`;
-    }).join('')}</div>`;
+    const q = companyQuery(company);
+    return stackLinks(customsSites, site => (q && site.search ? site.search(q) : site.home), 'data-customs', false);
+  };
+  UI.mapsLink = company => {
+    const q = companyQuery(company);
+    return q ? mapsSearch(q) : mapsHome;
+  };
+  UI.verifyLinks = (company, options = {}) => {
+    const q = companyQuery(company);
+    const domain = websiteDomain(options.website);
+    const hunter = domain ? stackLinks([{ id: 'hunter', name: 'Hunter 邮箱', note: '按域名查找公开邮箱，不调用接口' }], () => UI.hunterLink(domain), 'data-verify', true) : '';
+    return `${stackLinks(verifyCompanySites, site => (q && site.search ? site.search(q) : site.home), 'data-verify', true)}${hunter}${countryHint(options.country)}<h3>中东登记入口</h3><p class="muted small">没有公开的公司名搜索参数，按钮只打开官网。请在官方页面填写公司名或商业登记号 CR。</p>${stackLinks(mideastSites, site => site.home, 'data-verify', true)}`;
   };
   const limits = {
     discovery: '自动获客按 Tavily Free → Firecrawl Free → SerpAPI Free → Brave Search 使用免费额度。一个来源用完就换下一个，不会自动付费。地板、墙板关键词和进口、分销、批发、工程采购筛选保持不变。',
@@ -107,6 +163,14 @@
     }
     return domain;
   }
+  function websiteDomain(raw) {
+    try { return domainOf(String(raw || '')); }
+    catch { return ''; }
+  }
+  UI.hunterLink = website => {
+    const domain = websiteDomain(website);
+    return domain ? 'https://hunter.io/search/' + encodeURIComponent(domain) : 'https://hunter.io/';
+  };
   async function lookup(domain) {
     const data = await (bootstrap ||= read('https://data.iana.org/rdap/dns.json').catch(e=>{bootstrap=null;throw e;}));
     const tld = domain.split('.').pop();
@@ -128,17 +192,37 @@
       <p>在新标签页打开免费海关网站。只是外链：不嵌入页面，不调用接口，不抓取数据。</p>
       <label>公司名称（可选）<input id="customsCompany" maxlength="200" autocomplete="off" placeholder="留空则打开首页"></label>
       <div id="customsLinks">${UI.customsLinks('')}</div>
-      <p class="muted small">有公司名时，ImportYeti 按公司名搜索，PortExaminer 按进口商名称搜索。CNUData 始终打开首页，请在站内选择沙特或阿联酋后查询。提单线索需人工核对，不能代替客户确认。查完后可把进口证据摘要、证据 URL、核实日记在客户的来源/核实说明里。</p></section>
+      <p class="muted small">有公司名时，ImportYeti 按公司名搜索，PortExaminer 按进口商名称搜索。CNUData 始终打开首页，请在站内选择沙特或阿联酋后查询。同一公司名也会更新下方的公司核实和 Google 地图。提单线索需人工核对，不能代替客户确认。查完后可把进口证据摘要、证据 URL、核实日记在客户的来源/核实说明里。</p></section>
+      <section class="card pad" id="companyVerify"><h2>公司核实</h2>
+      <p>使用上面的公司名称。有名称时，搜索链接会带上公司名；留空则打开各站首页。只在新标签页打开，不嵌入页面，不调用接口。</p>
+      <label>网站或域名（可选，只用于 Hunter）<input id="verifyWebsite" maxlength="253" autocomplete="off" placeholder="例如 acmeflooring.com"></label>
+      <div id="verifyLinks">${UI.verifyLinks('', {})}</div></section>
       ${UI.lookupQuota('discovery')}${UI.lookupQuota('research')}
       <section class="card pad"><h2>RDAP · 域名注册核对 <small>免费公开查询</small></h2>
       <p>输入公开公司域名，查注册日期、到期日和状态。不扣 CRM 搜索积分。部分注册局限流或限制浏览器访问时，请用 ICANN 官网手动查。</p>
       <form id="rdapForm"><label>公司域名<input name="domain" required maxlength="253" placeholder="例如 example.com"></label><div class="actions"><button class="primary">查询域名注册资料</button>${external('https://lookup.icann.org/','打开 ICANN Lookup')}</div></form><p id="rdapStatus" role="status"></p>
       <div id="rdapResult"></div><p class="muted small">域名注册日期不等于企业成立日期。登记信息可能被隐藏；结果只作为主体核实的辅助证据。</p></section>
-      <section class="card pad"><h2>外部查询工具</h2><div class="grid2">${tools.map(([name,mode,use,quota,url,link,docs])=>`<article class="card pad"><h3>${esc(name)} <small>${esc(mode)}</small></h3><p>${esc(use)}</p><p><b>额度</b> · ${esc(quota)}</p><div class="actions">${external(url,link)}${name.startsWith('OKKI')?external('https://www.okki.com/','打开 OKKI'):''}${external(docs,'官方说明')}</div></article>`).join('')}</div></section>`,'lookup-tools');
+      <section class="card pad" id="externalTools"><h2>外部查询工具</h2>
+      <p>Hunter 使用上方网站或域名，Google 地图使用上方公司名。没有填写时打开首页。需账号的网站只打开官网。</p>
+      <h3>可带公司或域名</h3><div class="grid2">${directTools.map(toolCard).join('')}</div>
+      <h3>需账号工具</h3><p class="muted small">需要自有账号或套餐权限。按钮只打开官网，不会代查，也不调用接口。</p>
+      <div class="grid2">${accountTools.map(toolCard).join('')}</div></section>`,'lookup-tools');
     if(DB.mode==='demo') for(const el of document.querySelectorAll('[data-lookup-quota]')) el.textContent='演示环境没有正式 CRM 余额。';
     else UI.loadLookupQuota();
     const customsCompany = $('#customsCompany'), customsLinks = $('#customsLinks');
-    if (customsCompany && customsLinks) customsCompany.oninput = () => { customsLinks.innerHTML = UI.customsLinks(customsCompany.value); };
+    const verifyWebsite = $('#verifyWebsite'), verifyLinks = $('#verifyLinks');
+    const syncOutbound = () => {
+      const company = customsCompany ? customsCompany.value : '';
+      const website = verifyWebsite ? verifyWebsite.value : '';
+      if (customsLinks) customsLinks.innerHTML = UI.customsLinks(company);
+      if (verifyLinks) verifyLinks.innerHTML = UI.verifyLinks(company, { website });
+      const maps = document.querySelector('[data-tool-link="maps"]');
+      if (maps) maps.href = UI.mapsLink(company);
+      const hunter = document.querySelector('[data-tool-link="hunter"]');
+      if (hunter) hunter.href = UI.hunterLink(website);
+    };
+    if (customsCompany) customsCompany.oninput = syncOutbound;
+    if (verifyWebsite) verifyWebsite.oninput = syncOutbound;
     const form=$('#rdapForm'), status=$('#rdapStatus'), output=$('#rdapResult'), button=form.querySelector('button');
     form.onsubmit=async event=>{
       event.preventDefault();

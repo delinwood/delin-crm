@@ -233,6 +233,7 @@
           <h3>业务 Business</h3>${c.status==='成交' ? kv('成交说明',esc(c.deal_note||'历史成交客户，请在编辑资料中补填')) : ''}${kv('客户标记', UI.attentionControl(c))}${kv('无效原因', esc(c.invalid_reason || ''))}${kv('追单提醒', esc(UI.emailDueDate(c)) + ' ' + UI.chaseButton(c))}${kv('匹配产品 Products', `<div class="chips">${UI.chips(c.products)}</div>`)}${kv('标签 Tags', UI.tags(c.tags))}${kv('Apollo 搜索条件', esc(c.apollo_criteria))}
           ${kv('备注 Notes', esc(c.notes).replace(/\n/g, '<br>'))}${kv('来源/核实 Source', esc(c.source_note).replace(/(https?:\/\/[^\s;,)]+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>'))}
           <h3>海关核验 <small>Customs check</small></h3><p class="muted small">新标签页打开免费网站，不嵌入、不调用接口。有公司名时 ImportYeti、PortExaminer 会带上公司名；CNUData 打开首页。进口证据摘要、证据 URL、核实日写在来源/核实说明。</p>${UI.customsLinks?.(c.company_name) || ''}
+          <h3>公司核实 <small>Company check</small></h3><p class="muted small">新标签页打开公开检索和登记入口。有公司名时带入搜索；有网站时 Hunter 按域名查找公开邮箱。阿联酋、沙特只打开官网，请在官方页面填写公司名或 CR。不嵌入、不调用接口。</p>${UI.verifyLinks?.(c.company_name, { website: c.website, country: c.country }) || ''}
           ${kv('创建 Created', esc((c.created_at || '').slice(0, 10)) + ' · ' + esc(UI.userName(c.created_by)))}
         </section></div>
         <div><section class="card pad">
