@@ -12,7 +12,7 @@
   ];
   const external = (url,label) => `<a href="${esc(url)}" target="_blank" rel="noopener noreferrer">${esc(label)} ↗</a>`;
   const limits = {
-    discovery: 'Tavily 基础搜索 1 积分／次，每项任务最多 6 次。免费计划 1,000 积分／月，CRM 团队上限 900 次搜索尝试／月。',
+    discovery: 'Tavily 基础搜索 1 积分／次，每项任务最多 6 次。免费计划 1,000 积分／月，CRM 团队上限 980 次搜索尝试／月。',
     research: '已有官网用 Jina Reader 读取，不扣 Tavily 积分，每家公司最多读 3 页。每批最多 10 家，每人每 24 小时最多 20 家；另选 Jina 公司搜索时，每家公司最多 1 次，全团队每月最多 100 个搜索任务。'
   };
   UI.lookupQuota = kind => `<section class="card pad"><h3>本次使用的额度</h3><p>${limits[kind]}</p>
@@ -30,7 +30,7 @@
         const counts = discovery?[quota.discovery_remaining]:[quota.research_daily_remaining,quota.research_search_remaining];
         if (!counts.every(n=>Number.isSafeInteger(n)&&n>=0)) throw Error('额度格式不可用');
         el.textContent = discovery
-          ? `CRM 团队本月剩余 ${counts[0]}／900 次搜索尝试（按 UTC 月份）。`
+          ? `CRM 团队本月剩余 ${counts[0]}／980 次搜索尝试（按 UTC 月份）。`
           : `本人近 24 小时可再提交 ${counts[0]}／20 家；团队本月剩余 ${counts[1]}／100 个公司搜索任务。`;
       }
     } catch {

@@ -27,7 +27,7 @@ const discoveryModule = (() => {
   };
   const clean = (v: unknown, limit = 600) => typeof v === 'string' ? v.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g,'').trim().slice(0, limit) : '';
   function checked(r: any): any { if (r.error) throw new Error('获客任务暂时无法保存，请稍后查看任务状态'); return r.data; }
-  function capabilities() { return { enabled: Deno.env.get('TAVILY_FREE_SEARCH_ENABLED') === 'true' && /^tvly-[A-Za-z0-9_-]{10,250}$/.test(Deno.env.get('TAVILY_API_KEY') || ''), provider: 'Tavily', freeOnly: true, monthlyAttemptCap: 900, maxQueries: 6, maxCandidates: 50, maxWebsitePages: 2 }; }
+  function capabilities() { return { enabled: Deno.env.get('TAVILY_FREE_SEARCH_ENABLED') === 'true' && /^tvly-[A-Za-z0-9_-]{10,250}$/.test(Deno.env.get('TAVILY_API_KEY') || ''), provider: 'Tavily', freeOnly: true, monthlyAttemptCap: 980, maxQueries: 6, maxCandidates: 50, maxWebsitePages: 2 }; }
   function fact(topic: string, re: RegExp, text: string, source: string, at: string) {
     const found = re.exec(text); if (!found) return null;
     const line = text.lastIndexOf('\n', found.index), minimum = Math.max(0, found.index - 100);

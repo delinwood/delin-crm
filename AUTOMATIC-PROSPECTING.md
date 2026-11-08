@@ -17,7 +17,7 @@
 - 只传产品、国家、城市、买家类型；不传CRM内部资料、Gmail内容或员工授权令牌。
 - 网页：复用Jina免密钥Reader及Google公开DNS的安全读取，仅处理公开网页，禁止内网、IP、短链、社交登录、文件、账号页面和带查询参数的网址。
 - 本版本只接受Tavily Researcher/Free、计划不超过1000积分且paygo_limit/paygo_usage为0的账号；每次实际搜索前核对usage。未知格式、超额、授权错误和无法核对时停止。
-- 系统全体账号UTC自然月最多900次搜索尝试；账号滚动24小时最多10个任务、3个未完成任务。保留尝试不等于服务商确认扣费。
+- 系统全体账号UTC自然月最多980次搜索尝试（低于Tavily免费计划1000积分，留出缓冲）；账号滚动24小时最多10个任务、3个未完成任务。保留尝试不等于服务商确认扣费。
 - 持久化预约外部请求；超时或进程中断不重复搜索。用户可暂停、继续、取消；已经提交的请求无法撤销，来源保留。
 - 不创建自动充值，不绑定卡，不购买额度，不自动选择付费后备服务。免费积分是搜索次数额度，不保证有效客户数量。
 
@@ -29,6 +29,7 @@
 4. 发布 `js/v_discovery.js`、`js/v_prospect.js` 和 `index.html`。保留原有其他脚本。
 5. 老板自行完成Tavily免费账号登录/条款同意。确认无卡、无paygo，用独立密钥配置Supabase服务器 `TAVILY_API_KEY` 与 `TAVILY_FREE_SEARCH_ENABLED=true`。密钥不能写入Git、网页或浏览器存储；不更改Gmail权限。
 6. 检查Pages部署状态及实际「找客户 → 自动获客」入口。服务未配置时明确显示未连接，开始按钮禁用。
+7. 月度搜索尝试上限由900改为980。历史迁移仍创建900的领取暂停条件和 `crm_lookup_quota`；在老板批准前不要对生产库执行 `supabase/migrations/20261108020000_discovery_monthly_attempt_cap.sql`，也不要为此发布页面或边缘函数。批准后再于SQL编辑器执行该事务，并发布已改为980的 `discovery.ts`、`js/v_discovery.js` 与 `js/v_lookup_tools.js`。Tavily密钥、免费计划硬停止和按量付费为零的检查保持不变。
 
 官方参考（2026-10-23核对）：
 - https://www.tavily.com/pricing
