@@ -57,7 +57,7 @@
   const NAV = [
     ['reminders','#/reminders','⏰','闹钟事项','My reminders','','个人安排'],
     ['home','#/home','🏠','工作台','Today','','概览'],
-    ['list','#/list','📇','客户管理','Clients','','客户开发'],['pool','#/pool','🌊','谷歌客户公海','Google Lead Pool','','客户开发'],['invalid','#/invalid','📁','无效客户','Invalid','','客户开发'],
+    ['list','#/list','📇','客户管理','Clients','','客户开发'],['pool','#/pool','🌊','谷歌客户公海','Google Lead Pool','','客户开发'],['client-import','#/client-import','📥','批量导入客户','Import','','客户开发'],['invalid','#/invalid','📁','无效客户','Invalid','','客户开发'],
     ['prospect','#/prospect','🔎','找客户','Prospecting','','获客工具'],['lookup-tools','#/lookup-tools','🔍','客户核实工具','Verification','','获客工具'],['markets','#/markets','🌍','目标市场','Markets','','获客工具'],['agent','#/ai','🤖','智能助手','Assistant','','获客工具'],
     ['mail','#/mail','📨','邮件中心','Email','','沟通跟进'],['email-reminders','#/email-reminders','⏰','跟进提醒','Reminders','','沟通跟进'],['templates','#/templates','✉️','话术模板','Templates','','沟通跟进'],
     ['business','#/business','📈','业务工作台','Business','','业务与培训'],['learning','#/learning','📚','学习中心','Learning','','业务与培训'],
@@ -66,7 +66,7 @@
   UI.shell = (inner, active) => {
     const admin = UI.ME.role === 'admin';
     const nav = UI.isSocialOperator
-      ? [['social','#/social','🤝','社媒客户','Social','','客户开发'],...NAV.filter(n=>['reminders','learning'].includes(n[0]))]
+      ? [['social','#/social','🤝','社媒客户','Social','','客户开发'],...NAV.filter(n=>['client-import','reminders','learning'].includes(n[0]))]
       : NAV.filter(n => !n[5] || admin);
     const od = UI.overdue(UI.CLIENTS.filter(c => c.owner_id === UI.ME.id)).length;
     const groups = [...new Set(nav.map(n => n[6]))];
@@ -172,7 +172,7 @@
         UI.isSocialOperator = isOperator;
         scopedUser = user;
       }
-      if (UI.isSocialOperator && !/^#\/(social|learning|reminders|me)(?:\/|\?|$)/.test(hash)) {
+      if (UI.isSocialOperator && !/^#\/(social|client-import|learning|reminders|me)(?:\/|\?|$)/.test(hash)) {
         location.hash = '#/social';
         return;
       }

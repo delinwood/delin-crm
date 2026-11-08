@@ -74,8 +74,20 @@
     if (cur || row.length) { row.push(cur); rows.push(row); }
     return rows.filter(r => r.some(v => String(v).trim()));
   }
-  const IMPORT_FIELDS = C.FIELDS.filter(f => f[0] !== 'owner').concat([['owner', '负责业务员(用户名)', 'Owner username']]);
-  const ALIASES = { company_name: ['company', 'name', 'companyname', 'organization', 'account'], company_phone: ['phone', 'tel', 'telephone'], company_email: ['email', 'e-mail', 'mail'], website: ['url', 'site', 'domain', 'web'], state: ['province', 'region'], contact_name: ['contact', 'contactperson'], contact_title: ['title', 'jobtitle'], contact_linkedin: ['linkedin', 'linkedinurl'], notes: ['note', 'remarks'], source_note: ['source', 'sourceurl'] };
+  const IMPORT_FIELDS = C.FIELDS.filter(f => f[0] !== 'owner').concat([
+    ['owner', '负责业务员(用户名)', 'Owner username'],
+    ['platform', '展会名称 / 来源平台', 'Event / Platform'],
+    ['social_url', '来源链接', 'Source URL']
+  ]);
+  const POOL_TARGETS = [
+    ['google', '谷歌客户公海', 'pool'], ['exhibition', '展会客户公海', 'exhibition'],
+    ['international', '国际站客户公海', 'international'], ['social', '社媒客户', 'social']
+  ];
+  const targetName = key => POOL_TARGETS.find(([id]) => id === key)?.[1] || '客户管理';
+  const channelPool = key => !!key && key !== 'google';
+  const importTargets = () => POOL_TARGETS.filter(([key]) =>
+    UI.isSocialOperator ? key === 'social' : key !== 'social' || UI.canExport());
+  const ALIASES = { company_name: ['company', 'name', 'companyname', 'organization', 'account', '公司', '客户名称', '公司英文名称', '公司中文名称'], company_phone: ['phone', 'tel', 'telephone'], company_email: ['email', 'e-mail', 'mail'], website: ['url', 'site', 'domain', 'web', '公司官网', '官网'], state: ['province', 'region'], country: ['国家地区'], whatsapp: ['WhatsApp手机号'], products: ['主营产品', '产品'], contact_name: ['contact', 'contactperson', '联系人', '联系人姓名'], contact_title: ['title', 'jobtitle'], contact_linkedin: ['linkedin', 'linkedinurl'], notes: ['note', 'remarks'], source_note: ['source', '核实说明'], platform: ['展会名称', '平台', '来源平台', '店铺'], social_url: ['sourceurl', '询盘链接'] };
   const norm = s => String(s || '').toLowerCase().replace(/[\s_\-/()（）:]/g, '');
   function guess(h) { const n = norm(h);
     for (const [k, cn, en] of IMPORT_FIELDS) if (n === norm(k) || n === norm(cn) || n === norm(en) || n === norm(cn + en) || n === norm(cn + ' ' + en)) return k;
@@ -95,6 +107,7 @@
       <section class="card pad"><h2>备份 Backup</h2><p>导出全部数据（客户、跟进、报价、样品、操作日志、模板、账号），建议每周一次存到网盘。</p>
         ${UI.canExport()?'<div class="qa"><button class="primary" id="bkx">⬇️ Excel 多表备份</button><button class="ghost" id="bkj">⬇️ JSON 完整备份</button></div>':'<p>仅老板账号可以导出备份。</p>'}
         <h2 style="margin-top:22px">导入客户 Import (CSV / Excel)</h2><p class="muted small">支持本系统导出的文件、tools/prospect.py 生成的 crm_import.csv、以及任意表头（下一步手动对应字段）。导入前自动查重。</p>
+        <p class="muted small">也可从左侧「批量导入客户」进入。分入公海的客户统一从未分配开始。</p>
         <input type="file" id="impf" accept=".csv,.xlsx,.xls"><div id="impbox"></div></section></div>`, 'admin');
     $$('[data-tog]').forEach(b => b.onclick = async () => { try { await DB.updateUser(b.dataset.tog, { active: b.dataset.a !== '1' }); await UI.refresh(); admin(); } catch (e) { UI.toast(e.message, 1); } });
     $$('[data-pw]').forEach(b => b.onclick = async () => { const pw = prompt('新密码（至少8位）New password (min 8)'); if (!pw) return; if (pw.length < 8) return UI.toast('至少8位', 1);
@@ -105,43 +118,148 @@
     if($('#bkx')) $('#bkx').onclick = async () => { if(!await UI.requireExport())return; const b = await DB.backup(); try { await UI.loadXLSX(); } catch (e) { return UI.toast(e.message, 1); }
       const wb = XLSX.utils.book_new(), flat = r => Object.fromEntries(Object.entries(r).map(([k, v]) => [k, Array.isArray(v) ? v.join('; ') : (v && typeof v === 'object') ? JSON.stringify(v) : v]));
       ['clients', 'follow_ups', 'quotes', 'samples', 'audit_log', 'templates', 'users'].forEach(k => XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet((b[k] || []).map(flat)), k)); XLSX.writeFile(wb, `crm_backup_${UI.today()}.xlsx`); };
+    bindImport('');
+  }
+  function importPage(){
+    const targets=importTargets(), initial=UI.isSocialOperator?'social':'google';
+    UI.render(`<div class="pagehead"><h1>批量导入客户</h1></div><section class="card pad">
+      <p>上传 Excel 或 CSV，核对字段和重复项，再选择要进入的公海。导入后客户为未分配。</p>
+      <p>可选目标：${targets.map(([,label])=>esc(label)).join('、')}</p>
+      <input type="file" id="impf" aria-label="客户表格" accept=".csv,.xlsx,.xls"><div id="impbox"></div>
+      </section>`,'client-import');
+    bindImport(initial);
+  }
+  function bindImport(initial){
+    IMP=null;
     $('#impf').onchange = async e => { const file = e.target.files[0]; if (!file) return; let rows;
       try { if (/\.xlsx?$/i.test(file.name)) { await UI.loadXLSX(); const wb = XLSX.read(await file.arrayBuffer()); rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: '' }); } else rows = parseCSV(await file.text()); } catch (err) { return UI.toast('读取失败：' + err.message, 1); }
       if (rows.length < 2) return UI.toast('文件为空', 1);
-      IMP = { name: file.name, head: rows[0].map(String), data: rows.slice(1), map: rows[0].map(h => guess(h)), owner: 'column', skip: true }; mapping(); };
+      const detected = rows.slice(0, 12).findIndex(r => r.some(h => guess(h) === 'company_name'));
+      const header = Math.max(0, detected), head = rows[header].map(String);
+      IMP = { name: file.name, head, header, data: rows.slice(header + 1), map: head.map(guess),
+        target: initial, owner: 'column', skip: true, shared: [] };
+      const draft=IMP;
+      if (initial && DB.mode !== 'demo') {
+        const fileInput=e.target, box=$('#impbox');
+        fileInput.disabled=true;
+        box.textContent='正在检查各公海已有客户…';
+        try {
+          draft.shared=await existingChannels();
+          draft.loadedShared=true;
+        } catch (err) {
+          if (box.isConnected) { box.textContent='查重失败，请重新选择文件。'; fileInput.value=''; UI.toast(err.message,1); }
+          return;
+        } finally { fileInput.disabled=false; }
+      }
+      if (IMP===draft && e.target.isConnected) mapping();
+    };
   }
   function build() {
     const out = [], seenD = new Set(), seenN = new Set(), seenP = new Set(), byU = Object.fromEntries(UI.USERS.map(u => [u.username.toLowerCase(), u.id]));
-    const exD = new Map(), exN = new Map(), exP = new Map(); UI.CLIENTS.forEach(c => { const d = U.domain(c.website), n = U.nameKey(c.company_name), p = U.phoneKey(c.company_phone); if (d) exD.set(d, c); if (n) exN.set(n, c); if (p) exP.set(p, c); });
-    IMP.data.forEach((r, i) => { const o = {}; IMP.map.forEach((k, j) => { if (k && r[j] != null && String(r[j]).trim() !== '') o[k] = String(r[j]).trim(); });
+    const exD = new Map(), exN = new Map(), exP = new Map();
+    for (const c of [...UI.CLIENTS, ...(IMP.target ? IMP.shared : [])]) {
+      const d = U.domain(c.website), n = U.nameKey(c.company_name);
+      if (d) exD.set(d, c); if (n) exN.set(n, c);
+      for (const value of [c.company_phone, c.whatsapp]) {
+        const phone = U.phoneKey(value);
+        if (phone) exP.set(phone, c);
+      }
+    }
+    IMP.data.forEach((r, i) => { const o = {}; IMP.map.forEach((k, j) => { if (k && !o[k] && r[j] != null && String(r[j]).trim() !== '') o[k] = String(r[j]).trim(); });
       if (!o.company_name) return; const c = { ...o };
       c.products = (o.products || '').split(/[;,，、|]/).map(prodKey).filter(Boolean); c.tags = (o.tags || '').split(/[;,，、|]/).map(s => s.trim()).filter(Boolean);
       if (o.customer_type) c.customer_type = typeKey(o.customer_type); if (!o.priority || !C.PRIORITIES.includes(o.priority)) c.priority = 'C';
       if (o.status && !C.STATUSES.some(s => s[0] === o.status)) c.status = '未联系';
       if (o.next_follow_up && !/^\d{4}-\d{2}-\d{2}$/.test(o.next_follow_up)) delete c.next_follow_up;
       delete c.owner; c.owner_id = IMP.owner === 'column' ? (byU[(o.owner || '').toLowerCase()] || null) : IMP.owner === 'pool' ? null : IMP.owner;
-      const d = U.domain(c.website), n = U.nameKey(c.company_name), p = U.phoneKey(c.company_phone);
-      const ex = (d && exD.get(d)) || (n && exN.get(n)) || (p && exP.get(p)); const inFile = (d && seenD.has(d)) || (n && seenN.has(n)) || (p && seenP.has(p));
-      if (d) seenD.add(d); if (n) seenN.add(n); if (p) seenP.add(p);
-      out.push({ row: i + 2, c, dup: ex ? `已存在：${ex.company_name}（${UI.userName(ex.owner_id)}）` : inFile ? '文件内重复' : '' }); });
+      if (IMP.target) { c.owner_id = null; c.status = '未联系'; }
+      const d = U.domain(c.website), n = U.nameKey(c.company_name);
+      const phones = [c.company_phone, c.whatsapp].map(U.phoneKey).filter(Boolean);
+      const ex = (d && exD.get(d)) || (n && exN.get(n)) || phones.map(p => exP.get(p)).find(Boolean);
+      const inFile = (d && seenD.has(d)) || (n && seenN.has(n)) || phones.some(p => seenP.has(p));
+      if (d) seenD.add(d); if (n) seenN.add(n);
+      phones.forEach(p => seenP.add(p));
+      out.push({ row: IMP.header + i + 2, c, rawProducts: o.products || '',
+        dup: ex ? `已存在：${ex.company_name}（${ex.poolLabel || UI.userName(ex.owner_id)}）` : inFile ? '文件内重复' : '' }); });
     return out;
+  }
+  async function existingChannels() {
+    const result = [];
+    for (let offset = 0;; offset += 500) {
+      const rows = DB.chk(await DB.t('crm_social_leads').select('data').order('id').range(offset, offset + 499));
+      for (const {data} of rows) {
+        const channel = data.lead_channel || 'social';
+        result.push({ ...data, company_phone: data.phone, poolLabel: channel === 'social' ? '社媒客户' : targetName(channel) });
+      }
+      if (rows.length < 500) return result;
+    }
+  }
+  function toShared({c, rawProducts}) {
+    const notes = [c.notes, c.source_note && '来源 / 核实：' + c.source_note,
+      ...[['state','州/地区'],['city','城市'],['address','地址'],['contact_title','职位'],['contact_linkedin','LinkedIn'],
+        ['whatsapp','WhatsApp'],['customer_type','客户类型'],['apollo_criteria','Apollo 搜索条件'],['priority','优先级']]
+        .filter(([key]) => c[key]).map(([key, label]) => label + '：' + c[key])].filter(Boolean);
+    return {company_name:c.company_name, country:c.country || '', contact_name:c.contact_name || '',
+      phone:c.company_phone || c.whatsapp || '', email:c.company_email || '', website:c.website || '',
+      products:rawProducts, tags:c.tags.join(', '), platform:c.platform || '', social_url:c.social_url || '',
+      notes:notes.join('\n'), next_date:c.next_follow_up || ''};
   }
   function mapping() {
     const rows = build(), dups = rows.filter(r => r.dup).length, toImp = IMP.skip ? rows.length - dups : rows.length;
     $('#impbox').innerHTML = `<h3>字段对应 Column mapping — ${esc(IMP.name)}（${IMP.data.length} 行）</h3><div class="mapgrid">${IMP.head.map((h, j) => `<label><span>${esc(h || '(空)')}</span><select data-m="${j}">${opt('', '— 忽略 —', IMP.map[j])}${IMPORT_FIELDS.map(f => opt(f[0], f[1] + ' ' + f[2], IMP.map[j])).join('')}</select><em class="muted small">${esc(String((IMP.data[0] || [])[j] || '').slice(0, 30))}</em></label>`).join('')}</div>
-      <div class="g2"><label>负责业务员 Owner<select id="imo">${opt('column', '按文件中“负责业务员”列（用户名）', IMP.owner)}${opt('pool', '全部放入公海（之后再分配）', IMP.owner)}${UI.USERS.filter(u => u.active).map(u => opt(u.id, '全部分给 ' + u.full_name, IMP.owner)).join('')}</select></label>
+      <label>目标公海<select id="imTarget">${location.hash==='#/admin'?opt('', '客户管理（按负责人导入）', IMP.target):''}${importTargets().map(([key,label]) => opt(key,label,IMP.target)).join('')}</select></label>
+      <div class="g2">${IMP.target?'<p>负责人：未分配</p>':`<label>负责业务员 Owner<select id="imo">${opt('column', '按文件中“负责业务员”列（用户名）', IMP.owner)}${opt('pool', '全部放入谷歌客户公海（之后再分配）', IMP.owner)}${UI.USERS.filter(u => u.active).map(u => opt(u.id, '全部分给 ' + u.full_name, IMP.owner)).join('')}</select></label>`}
         <label class="inl"><input type="checkbox" id="imsk" ${IMP.skip ? 'checked' : ''}> 跳过重复客户 Skip duplicates</label></div>
       ${IMP.map.includes('company_name') ? '' : '<div class="warn">请指定“公司名称”列</div>'}
-      <p><b>${rows.length}</b> 行有效 · <b class="${dups ? 'red' : ''}">${dups}</b> 行疑似重复 · 将导入 <b>${toImp}</b> 行</p>
-      <div class="tblwrap prev"><table class="mini"><thead><tr><th>行</th><th>公司</th><th>国家</th><th>网站</th><th>电话</th><th>产品</th><th>负责人</th><th>查重</th></tr></thead><tbody>${rows.slice(0, 200).map(r => `<tr class="${r.dup ? 'duprow' : ''}"><td>${r.row}</td><td>${esc(r.c.company_name)}</td><td>${esc(r.c.country || '')}</td><td>${esc(U.domain(r.c.website))}</td><td>${esc(r.c.company_phone || '')}</td><td>${esc((r.c.products || []).join(','))}</td><td>${esc(UI.userName(r.c.owner_id))}</td><td>${r.dup ? '⚠️ ' + esc(r.dup) : '✅'}</td></tr>`).join('')}</tbody></table></div>
+      <p>导入到 <b>${esc(targetName(IMP.target))}</b> · <b>${rows.length}</b> 行有效 · <b class="${dups ? 'red' : ''}">${dups}</b> 行疑似重复 · 将导入 <b>${toImp}</b> 行</p>
+      <div class="tblwrap prev"><table class="mini"><thead><tr><th>行</th><th>公司</th><th>国家</th><th>网站</th><th>电话</th><th>产品</th><th>负责人</th><th>查重</th></tr></thead><tbody>${rows.slice(0, 200).map(r => `<tr class="${r.dup ? 'duprow' : ''}"><td>${r.row}</td><td>${esc(r.c.company_name)}</td><td>${esc(r.c.country || '')}</td><td>${esc(U.domain(r.c.website))}</td><td>${esc(r.c.company_phone || r.c.whatsapp || '')}</td><td>${esc(channelPool(IMP.target)?r.rawProducts:(r.c.products || []).map(C.productName).join(', '))}</td><td>${esc(IMP.target?'未分配':UI.userName(r.c.owner_id))}</td><td>${r.dup ? '⚠️ ' + esc(r.dup) : '✅'}</td></tr>`).join('')}</tbody></table></div>
       <div class="right"><button class="ghost" id="imc">取消</button> <button class="primary" id="imgo" ${IMP.map.includes('company_name') && toImp ? '' : 'disabled'}>导入 ${toImp} 行</button></div>`;
     $$('[data-m]').forEach(s => s.onchange = () => { IMP.map[+s.dataset.m] = s.value; mapping(); });
-    $('#imo').onchange = e => { IMP.owner = e.target.value; mapping(); }; $('#imsk').onchange = e => { IMP.skip = e.target.checked; mapping(); };
+    if ($('#imTarget')) $('#imTarget').onchange = async e => {
+      const draft = IMP, key = e.target.value, controls = [...$('#impbox').querySelectorAll('select,input,button'), $('#impf')];
+      const disabled = controls.map(el => el.disabled);
+      controls.forEach(el => { el.disabled = true; });
+      try {
+        if (key && DB.mode !== 'demo' && !draft.loadedShared) {
+          draft.shared = await existingChannels();
+          draft.loadedShared = true;
+        }
+        if (IMP === draft && $('#impbox')) { draft.target = key; mapping(); }
+      } catch (err) {
+        if (IMP === draft && $('#impbox')) { UI.toast('读取已有公海客户失败：' + err.message, 1); mapping(); }
+      } finally { controls.forEach((el,i) => { el.disabled = disabled[i]; }); }
+    };
+    if ($('#imo')) $('#imo').onchange = e => { IMP.owner = e.target.value; mapping(); }; $('#imsk').onchange = e => { IMP.skip = e.target.checked; mapping(); };
     $('#imc').onclick = () => { IMP = null; $('#impbox').innerHTML = ''; $('#impf').value = ''; };
-    $('#imgo').onclick = async () => { const list = rows.filter(r => !(IMP.skip && r.dup)).map(r => r.c);
-      try { const n = await DB.importClients(list); UI.toast(`已导入 ${n} 家`); IMP = null; await UI.refresh(); location.hash = '#/list'; } catch (e) { UI.toast(e.message, 1); } };
+    $('#imgo').onclick = async () => {
+      const draft = IMP, target = draft.target, list = rows.filter(r => !(draft.skip && r.dup));
+      const controls = [...$('#impbox').querySelectorAll('select,input,button'), $('#impf')];
+      const disabled = controls.map(el => el.disabled);
+      controls.forEach(el => { el.disabled = true; });
+      try {
+        let n;
+        if (channelPool(target)) {
+          if (DB.mode === 'demo') throw Error('此公海请在正式系统导入');
+          n = DB.chk(await DB.init().rpc('crm_import_channel_pool', {p_channel:target, p_rows:list.map(toShared)}));
+          UI.invalidateChannelPool?.(target);
+        } else {
+          const clients = list.map(({c:{platform,social_url,...c}}) => ({...c,
+            ...((platform||social_url)?{source_note:[c.source_note,platform,social_url].filter(Boolean).join(' · ')}:{})}));
+          if (target === 'google' && DB.mode !== 'demo')
+            n = DB.chk(await DB.init().rpc('crm_import_channel_pool', {p_channel:target, p_rows:clients.map(c=>DB.clean(c))}));
+          else n = await DB.importClients(clients);
+        }
+        IMP = null;
+        UI.toast(`已导入 ${n} 家至${targetName(target)}`);
+        if (!channelPool(target)) { UI.invalidateDirectory(); await UI.refresh().catch(() => {}); }
+        if (['#/admin','#/client-import'].includes(location.hash)) location.hash = '#/' + (POOL_TARGETS.find(([key]) => key === target)?.[2] || 'list');
+      } catch (err) {
+        UI.toast(err.message, 1);
+      } finally { controls.forEach((el,i) => { el.disabled = disabled[i]; }); }
+    };
   }
   UI.views.templates = { render: templates };
   UI.views.me = { render: me };
   UI.views.admin = { render: admin, admin: true };
+  UI.views['client-import'] = { render: importPage };
 })();

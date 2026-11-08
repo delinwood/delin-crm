@@ -20,6 +20,7 @@
   return result;
  };
  const cache = new Map();
+ UI.invalidateChannelPool = key => cache.delete(key);
  const loadSettings = () => DB.t('crm_social_settings').select('*').single().then(r=>DB.chk(r));
  const readSettings = UI.viewRead?.(loadSettings) || loadSettings;
  let cacheUser, readVersion = 0;
