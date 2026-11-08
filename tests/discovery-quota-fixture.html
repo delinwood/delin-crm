@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><title>获客额度</title></head>
+<body>
+<main></main>
+<div id="toast"></div>
+<pre id="out"></pre>
+<script src="/js/constants.js"></script>
+<script>
+window.CRM_CONFIG = { MODE: 'supabase', COMPANY_NAME_CN: '德林木业', COMPANY_NAME_EN: 'DELIN' };
+window.UI = {
+  views: {},
+  ME: { id: 'sales-1', role: 'sales', full_name: '业务员', active: true },
+  USERS: [{ id: 'sales-1', full_name: '业务员' }],
+  CLIENTS: [],
+  esc: value => String(value == null ? '' : value).replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char])),
+  opt: (value, label) => `<option value="${value}">${label}</option>`,
+  $: selector => document.querySelector(selector),
+  $$: selector => [...document.querySelectorAll(selector)],
+  userName: () => '业务员',
+  canExport: () => false,
+  toast: () => {},
+  BUSINESS: { rpc: async () => '11111111-1111-4111-8111-111111111111', bindForm() {} },
+  render(html) { document.querySelector('main').innerHTML = html; }
+};
+window.__calls = [];
+window.UI.BUSINESS.rpc = async (name, args) => { window.__calls.push({ name, args }); return '11111111-1111-4111-8111-111111111111'; };
+const quota = {
+  discovery_remaining: 0,
+  discovery_cap: 900,
+  discovery_providers: [
+    { id: 'tavily', name: 'Tavily Free', remaining: 0, limit: 900, unit: '次', exhausted: false, in_failover: true },
+    { id: 'firecrawl', name: 'Firecrawl Free', remaining: 12, limit: 1000, unit: '积分', in_failover: true },
+    { id: 'serpapi', name: 'SerpAPI Free', remaining: 250, limit: 250, unit: '次', in_failover: true },
+    { id: 'brave', name: 'Brave Search', remaining: 1000, limit: 1000, unit: '次', in_failover: true }
+  ],
+  research_daily_remaining: 20,
+  research_search_remaining: 100
+};
+window.__discovery = {
+  enabled: true,
+  provider: 'Firecrawl Free',
+  providers: [
+    { id: 'tavily', name: 'Tavily Free', configured: true, state: 'exhausted', remaining: 0, persistsResults: true },
+    { id: 'firecrawl', name: 'Firecrawl Free', configured: true, state: 'ready', remaining: 12, persistsResults: true },
+    { id: 'serpapi', name: 'SerpAPI Free', configured: false, state: 'unconfigured', persistsResults: true },
+    { id: 'brave', name: 'Brave Search', configured: true, state: 'ready', remaining: 1000, persistsResults: false }
+  ]
+};
+function chain(rows) {
+  const builder = {
+    select() { return builder; }, eq() { return builder; }, order() { return builder; }, limit() { return builder; },
+    then(resolve, reject) { return Promise.resolve({ data: rows, error: null }).then(resolve, reject); }
+  };
+  return builder;
+}
+window.DB = {
+  mode: 'live',
+  chk(result) { if (result.error) throw new Error(result.error.message); return result.data; },
+  init() { return this; },
+  rpc() { return Promise.resolve({ data: quota, error: null }); },
+  functions: { invoke() { return Promise.resolve({ data: { discovery: window.__discovery } }); } },
+  t() { return chain([]); }
+};
+location.hash = '#/discovery';
+</script>
+<script src="/js/v_lookup_tools.js?v=20261108-free-failover"></script>
+<script src="/js/v_discovery.js?v=20261108-free-failover"></script>
+<script>
+window.onerror = message => { document.querySelector('#out').textContent = 'ERR ' + message; };
+(async () => {
+  const notes = [];
+  document.querySelector('#out').textContent = 'BOOT';
+  const ready = async () => { for (let i = 0; i < 30 && !document.body.textContent.includes('Firecrawl Free：剩余'); i += 1) await new Promise(resolve => setTimeout(resolve, 20)); };
+  await UI.views.discovery.render();
+  await ready();
+  notes.push(document.querySelector('[data-lookup-quota="discovery"]').innerText);
+  const button = document.querySelector('#discoveryForm button');
+  notes.push(button.disabled ? 'START_DISABLED' : 'START_ENABLED');
+  document.querySelector('[name=consent]').checked = true;
+  document.querySelector('#discoveryForm').requestSubmit();
+  await new Promise(resolve => setTimeout(resolve, 30));
+  const submitted = window.__calls.find(call => call.name === 'crm_discovery_start');
+  notes.push('SUBMITTED:' + (submitted ? submitted.args.p_groups.join(',') : 'none'));
+  const saved = window.__discovery;
+  window.__discovery = { enabled: false, providers: saved.providers.map(provider => ({ ...provider, state: 'exhausted', remaining: 0 })) };
+  await UI.views.discovery.render();
+  notes.push(document.querySelector('#discoveryForm button').disabled ? 'ALL_EXHAUSTED_DISABLED' : 'ALL_EXHAUSTED_ENABLED');
+  window.__discovery = saved;
+  await UI.views['lookup-tools'].render();
+  await ready();
+  notes.push('QUOTA_READY');
+  document.querySelector('#out').textContent = notes.join('\n');
+})().catch(error => { document.querySelector('#out').textContent = 'ERR ' + error.stack; });
+</script>
+</body>
+</html>

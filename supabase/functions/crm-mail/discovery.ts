@@ -1,8 +1,10 @@
-import { inspectPublicWebsite, researchPublicURL, researchSmallJSON } from './research.ts';
+import { inspectPublicWebsite, researchPublicURL } from './research.ts';
+import { configuredFailover, contactsFromText, failoverSearch, firecrawlScrape, isConfigured, isQuotaError, mergeProviderStatus, probeProvider, providerById, quotaError, readerMayFallback, redactSearchResult, braveStorageAllowed } from './discovery-providers.mjs';
 
 /* Bounded public-web discovery. No AI-generated contact values and no emails.
- * Search is basic/1 credit; requests are reserved durably before HTTP. Only the
- * free Researcher plan with pay-as-you-go disabled is accepted in this release.
+ * Search stays on free tiers only. A provider that is confirmed exhausted is
+ * skipped and the next configured free provider is used. Nothing auto-pays.
+ * Brave excerpts stay out of CRM tables unless BRAVE_STORAGE_RIGHTS_OK=true.
  */
 const discoveryModule = (() => {
   const MARKETPLACES = ['alibaba.com','made-in-china.com','amazon.com','ebay.com','aliexpress.com','temu.com','pinterest.com','wikipedia.org','google.com','bing.com','tavily.com','europages.com','kompass.com','volza.com','panjiva.com','importyeti.com','go4worldbusiness.com','tradeindia.com','exporthub.com','tradewheel.com','globalsources.com','yelp.com','yellowpages.com','justdial.com'];
@@ -25,9 +27,30 @@ const discoveryModule = (() => {
     wholesaler: /\bwholesale(?:r|rs)?\b|trade only|dealers only|Großhandel|grossiste|groothandel|hurtownia|mayorista|الجملة|批发/i,
     contractor: /\bcontractor|commercial (?:fit[ -]?out|project)|construction projects?|مقاولات|工程|建筑/i
   };
+  const env = { get: (key: string) => Deno.env.get(key) };
   const clean = (v: unknown, limit = 600) => typeof v === 'string' ? v.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g,'').trim().slice(0, limit) : '';
   function checked(r: any): any { if (r.error) throw new Error('获客任务暂时无法保存，请稍后查看任务状态'); return r.data; }
-  function capabilities() { return { enabled: Deno.env.get('TAVILY_FREE_SEARCH_ENABLED') === 'true' && /^tvly-[A-Za-z0-9_-]{10,250}$/.test(Deno.env.get('TAVILY_API_KEY') || ''), provider: 'Tavily', freeOnly: true, monthlyAttemptCap: 900, maxQueries: 6, maxCandidates: 50, maxWebsitePages: 2 }; }
+  function quotaFromRpc(r: any) {
+    if (!r.error) return r.data;
+    const message = String(r.error.message || '');
+    if (isQuotaError({ message })) throw quotaError(message, { exhaust: true });
+    throw new Error('获客任务暂时无法保存，请稍后查看任务状态');
+  }
+  async function ledger(db: any) {
+    try {
+      const rows = checked(await db.rpc('crm_discovery_provider_quota'));
+      return Array.isArray(rows) ? rows : [];
+    } catch { return []; }
+  }
+  async function capabilities(db?: any) {
+    const configured = configuredFailover(env);
+    const live = await Promise.all(configured.map(async provider => {
+      try { return { id: provider.id, ...await probeProvider(provider.id, env, fetch) }; }
+      catch (error) { return { id: provider.id, exhausted: isQuotaError(error) && (error as any).exhaust === true, remaining: (error as any)?.exhaust ? 0 : null, checked: false }; }
+    }));
+    const merged = mergeProviderStatus({ env, ledger: db ? await ledger(db) : [], live });
+    return { ...merged, maxQueries: 6, maxCandidates: 50, maxWebsitePages: 2, configuredIds: configured.map(provider => provider.id) };
+  }
   function fact(topic: string, re: RegExp, text: string, source: string, at: string) {
     const found = re.exec(text); if (!found) return null;
     const line = text.lastIndexOf('\n', found.index), minimum = Math.max(0, found.index - 100);
@@ -62,52 +85,81 @@ const discoveryModule = (() => {
     if(retail&&!buyerMatches.size)reasons.push('出现零售描述，B端资格待确认');
     return { score, product_matches: matching, buyer_matches:[...buyerMatches], country_mentioned:country, warehouse_mentioned:warehouse, evidence, reasons, suitability:matching.length&&wantedBuyers.length&&country?'优先核实':'待核实' };
   }
-  async function usage(key: string) {
-    const r=await fetch('https://api.tavily.com/usage',{redirect:'error',credentials:'omit',headers:{Authorization:'Bearer '+key},signal:AbortSignal.timeout(4000)});
-    if(!r.ok)throw new Error('无法确认免费搜索额度，已停止；不会调用付费搜索');
-    const v=await researchSmallJSON(r,40000), a=v.account;
-    if(!a || !['researcher','free','researcher (free)'].includes(String(a.current_plan||'').toLowerCase()) || Number(a.plan_limit)>1000 || Number(a.paygo_limit)!==0 || Number(a.paygo_usage)!==0 || !Number.isFinite(Number(a.plan_usage)) || !Number.isFinite(Number(a.plan_limit)) || Number(a.plan_usage)>=Number(a.plan_limit)) throw new Error('搜索账号免费计划或余额未通过核对，任务已停止；请核对Researcher免费计划且按量付费关闭');
-    return {used:Number(a.plan_usage),limit:Number(a.plan_limit)};
-  }
-  async function search(q: string, criteria: any) {
-    const key=Deno.env.get('TAVILY_API_KEY')!; await usage(key);
-    const response=await fetch('https://api.tavily.com/search',{method:'POST',redirect:'error',credentials:'omit',headers:{Authorization:'Bearer '+key,'Content-Type':'application/json'},signal:AbortSignal.timeout(10000),body:JSON.stringify({query:q,search_depth:'basic',topic:'general',max_results:20,include_answer:false,include_raw_content:false,include_images:false,auto_parameters:false,include_usage:true,exclude_domains:MARKETPLACES})});
-    if(!response.ok)throw new Error([401,402,403,432,433].includes(response.status)?'搜索免费授权或余额不可用，已停止；不充值、不自动重试':response.status===429?'免费搜索限流，本次不重复调用，请稍后新建任务':'搜索服务未确认成功，本次不自动重试');
-    const payload=await researchSmallJSON(response,600000);
-    if(!Array.isArray(payload.results))throw new Error('搜索结果格式无效，本次不自动重试');
-    const results:any[]=[],seen=new Set<string>(),at=new Date().toISOString();
-    for(const item of payload.results.slice(0,20)){
+  function pack(hits: any[], criteria: any, provider: string, storageAllowed: boolean, query: string) {
+    const results: any[] = [], seen = new Set<string>(), at = new Date().toISOString();
+    for (const item of hits) {
       try {
-        const url=researchPublicURL(String(item.url||'')),domain=url.hostname.toLowerCase().replace(/^www\./,'');
-        if(MARKETPLACES.some(d=>domain===d||domain.endsWith('.'+d))||seen.has(domain))continue;
+        const url = researchPublicURL(String(item.url || '')), domain = url.hostname.toLowerCase().replace(/^www\./, '');
+        if (MARKETPLACES.some(d => domain === d || domain.endsWith('.' + d)) || seen.has(domain)) continue;
         seen.add(domain);
-        const source={url:url.href,title:clean(item.title,300),excerpt:clean(item.content,3500),checked_at:at,kind:'search_index',query:q};
-        const assessment=assess([source],criteria);
-        results.push({domain,website:url.origin+'/',title:source.title,source,score:assessment.score,data:{...assessment,suggestions:[],pages:[],checked_at:at,notice:'搜索索引摘录尚未核实公司身份；匹配分数不代表进口量或采购资格。'}});
+        const excerpt = clean(item.excerpt, 3500);
+        const source = { url: url.href, title: clean(item.title, 300), excerpt, checked_at: at, kind: 'search_index', provider, storage: provider === 'brave' ? (storageAllowed ? 'rights_ok' : 'ephemeral') : 'allowed', query };
+        const assessment = assess([{ ...source, content: excerpt }], criteria);
+        results.push({ domain, website: url.origin + '/', title: source.title, source, score: assessment.score, data: { ...assessment, suggestions: [], pages: [], checked_at: at, notice: '搜索索引摘录尚未核实公司身份；匹配分数不代表进口量或采购资格。' } });
       } catch { /* Reject private/file/social/signed URLs; never construct contact details. */ }
     }
-    results.sort((a,b)=>b.score-a.score);
-    return {results,credits:payload.usage?.credits??null};
+    results.sort((a, b) => b.score - a.score);
+    return redactSearchResult({ results, credits: null, provider }, { provider, storageAllowed }); // Brave text is removed here and again in crm_discovery_finish.
   }
-  async function inspect(c:any,j:any){
-    const raw=await inspectPublicWebsite(c.website,16000),at=new Date().toISOString();
-    const assessment=assess([...c.sources,...raw.pages],j.criteria),emails=raw.suggestions.filter((s:any)=>s.field==='company_email'),phones=raw.suggestions.filter((s:any)=>s.field==='company_phone');
-    return {...assessment,score:Math.min(100,assessment.score+(emails.length?10:0)+(phones.length?5:0)),suggestions:raw.suggestions,evidence:assessment.evidence,pages:raw.pages.map(({url,title,checked_at}:any)=>({url,title,checked_at})),checked_at:at,warnings:raw.warnings,notice:'公开网页候选资料。产品、批发、仓库、进口等词语只用于查阅，不能单独证明采购能力；请核实身份、国家及业务类型后导入。联系人姓名、营业年限、采购量不推测。'};
+  async function search(q: string, criteria: any, db: any, task: any) {
+    const providers = configuredFailover(env);
+    const outcome = await failoverSearch({
+      providers, query: q, excludeDomains: MARKETPLACES, env, fetchImpl: fetch,
+      begin: async (provider: any) => quotaFromRpc(await db.rpc('crm_search_attempt_begin', { p_job: task.job.id, p_lease: task.lease, p_step: task.step, p_provider: provider.id, p_kind: 'search', p_weight: provider.searchWeight })),
+      finish: async (attemptId: string, patch: any) => { checked(await db.rpc('crm_search_attempt_finish', { p_attempt: attemptId, p_lease: task.lease, p_status: patch.status, p_error: patch.error, p_count: patch.count, p_exhaust: patch.exhaust })); }
+    });
+    return pack(outcome.hits, criteria, outcome.provider, outcome.storageAllowed, q);
   }
-  async function worker(db:any){
-    if(!capabilities().enabled)return {processed:0,disabled:true};
-    const task=checked(await db.rpc('crm_discovery_claim'));if(!task)return {processed:0};
-    let result:any={},error:string|null=null;
+  function present(raw: any, c: any, j: any, notice: string) {
+    const assessment = assess([...(c.sources || []), ...raw.pages], j.criteria);
+    const emails = (raw.suggestions || []).filter((s: any) => s.field === 'company_email');
+    const phones = (raw.suggestions || []).filter((s: any) => s.field === 'company_phone');
+    return { ...assessment, score: Math.min(100, assessment.score + (emails.length ? 10 : 0) + (phones.length ? 5 : 0)), suggestions: raw.suggestions, evidence: assessment.evidence, pages: raw.pages.map(({ url, title, checked_at }: any) => ({ url, title, checked_at })), checked_at: new Date().toISOString(), warnings: raw.warnings || [], notice };
+  }
+  async function scrapeBackup(db: any, task: any, website: string) {
+    const provider = providerById('firecrawl');
+    if (!provider || !isConfigured(provider, env)) throw new Error('官网读取失败，且没有可用的免费抓取备份');
+    const url = researchPublicURL(website);
+    const attemptId = quotaFromRpc(await db.rpc('crm_search_attempt_begin', { p_job: task.job.id, p_lease: task.lease, p_step: null, p_provider: 'firecrawl', p_kind: 'scrape', p_weight: provider.scrapeWeight }));
     try {
-      if(task.kind==='search')result=await search(task.query,task.job.criteria);
-      else result=await inspect(task.candidate,task.job);
-    } catch(e) {error=e instanceof Error&& !/fetch|abort|signal|timeout/i.test(e.message)?e.message:'公开搜索或网页读取超时，本次不会自动重复搜索；可人工打开已有来源核实';}
-    checked(await db.rpc('crm_discovery_finish',{p_job:task.job.id,p_lease:task.lease,p_kind:task.kind,p_step:task.step??null,p_candidate:task.candidate?.id??null,p_result:result,p_error:error}));
-    // Auth/quota failures pause this job before any further query reservations.
-    if(task.kind==='search'&&error&&/免费计划|免费授权|余额|免费搜索额度/.test(error))checked(await db.from('crm_discovery_jobs').update({status:'paused',error}).eq('id',task.job.id).eq('status','running').is('lease_token',null));
-    return {processed:1,kind:task.kind,status:error?'failed':'completed'};
+      const page = await firecrawlScrape(env, fetch, url.href);
+      const finalURL = researchPublicURL(page.url);
+      if (finalURL.hostname.replace(/^www\./, '') !== url.hostname.replace(/^www\./, '')) throw new Error('官网跳转到其他网站，未采用跳转后的内容');
+      quotaFromRpc(await db.rpc('crm_search_attempt_finish', { p_attempt: attemptId, p_lease: task.lease, p_status: 'completed', p_error: null, p_count: true, p_exhaust: false }));
+      const at = new Date().toISOString();
+      const stored = { url: finalURL.href, title: clean(page.title, 300), content: page.markdown, checked_at: at };
+      return { pages: [stored], suggestions: contactsFromText(page.markdown, finalURL.href, at), warnings: ['官网读取改用 Firecrawl 免费抓取一页；未启用付费额度。'] };
+    } catch (error) {
+      const quota = isQuotaError(error);
+      await db.rpc('crm_search_attempt_finish', { p_attempt: attemptId, p_lease: task.lease, p_status: 'failed', p_error: error instanceof Error ? error.message : '抓取失败', p_count: quota ? (error as any).counted === true : true, p_exhaust: quota && (error as any).exhaust === true });
+      throw error;
+    }
   }
-  return {worker,capabilities};
+  async function inspect(c: any, j: any, db: any, task: any) {
+    const notice = '公开网页候选资料。产品、批发、仓库、进口等词语只用于查阅，不能单独证明采购能力；请核实身份、国家及业务类型后导入。联系人姓名、营业年限、采购量不推测。';
+    try {
+      return present(await inspectPublicWebsite(c.website, 16000), c, j, notice);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '';
+      if (!readerMayFallback(message)) throw error;
+      return present(await scrapeBackup(db, task, c.website), c, j, notice + ' 本次官网正文来自 Firecrawl 免费抓取备份。');
+    }
+  }
+  async function worker(db: any) {
+    const configured = configuredFailover(env);
+    if (!configured.length) return { processed: 0, disabled: true };
+    const task = checked(await db.rpc('crm_discovery_claim', { p_providers: configured.map(provider => provider.id) }));
+    if (!task) return { processed: 0 };
+    let result: any = {}, error: string | null = null;
+    try {
+      if (task.kind === 'search') result = await search(task.query, task.job.criteria, db, task);
+      else result = await inspect(task.candidate, task.job, db, task);
+    } catch (e) { error = e instanceof Error && !/fetch|abort|signal|timeout/i.test(e.message) ? e.message : '公开搜索或网页读取超时，本次不会自动重复搜索；可人工打开已有来源核实'; }
+    checked(await db.rpc('crm_discovery_finish', { p_job: task.job.id, p_lease: task.lease, p_kind: task.kind, p_step: task.step ?? null, p_candidate: task.candidate?.id ?? null, p_result: result, p_error: error }));
+    if (task.kind === 'search' && error && isQuotaError({ message: error })) checked(await db.from('crm_discovery_jobs').update({ status: 'paused', error }).eq('id', task.job.id).eq('status', 'running').is('lease_token', null));
+    return { processed: 1, kind: task.kind, status: error ? 'failed' : 'completed' };
+  }
+  return { worker, capabilities };
 })();
 export const discoveryWorker = discoveryModule.worker;
-export const discoveryCapabilities = discoveryModule.capabilities;
+export async function discoveryCapabilities(db?: any) { return discoveryModule.capabilities(db); }
