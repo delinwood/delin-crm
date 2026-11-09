@@ -7,7 +7,7 @@
 <meta name="robots" content="noindex,nofollow">
 <meta name="theme-color" content="#14284b">
 <link rel="icon" href="favicon.ico">
-<link rel="stylesheet" href="css/style.css?v=20261108-customs">
+<link rel="stylesheet" href="css/style.css?v=20261108-verify">
 </head>
 <body>
 <div id="app"><div class="loading">加载中 Loading…</div></div>
@@ -20,7 +20,7 @@
     var s = [];
     if (CRM_CONFIG.MODE === 'supabase') s.push('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js');
     else s.push('js/seed.js');
-    s.push('js/markets.js', 'js/templates.js', 'js/data.js?v=20261107-workflow', 'js/core.js?v=20261108-pool-import', 'js/batch.js?v=20261107', 'js/v_social_notices.js?v=20261107-social-scope', 'js/v_lookup_tools.js?v=20261108-customs', 'js/followup.js?v=20261107-chase', 'js/mail-merge.js', 'js/v_clients.js?v=20261108-customs', 'js/v_home.js?v=20261107-daily', 'js/v_prospect.js?v=20261108-customs', 'js/v_tools.js?v=20261108-pool-import', 'js/v_mail.js?v=20261107-workflow', 'js/v_pool.js?v=20261107-social-scope', 'js/v_business.js?v=20261107-sales-flow', 'js/v_today_work.js?v=20261107-sales-flow', 'js/v_sales_flow.js?v=20261107-sales-flow', 'js/v_recovery.js?v=20261107-batch', 'js/v_research.js?v=20261107-lookup', 'js/v_inbound.js', 'js/v_discovery.js?v=20261108-free-failover', 'js/v_agent.js', 'js/v_learning.js?v=20261104-abcd', 'js/v_ai.js?v=20261028-chat', 'js/v_reminders.js', 'js/v_social.js?v=20261108-pool-import');
+    s.push('js/markets.js', 'js/templates.js', 'js/data.js?v=20261107-workflow', 'js/core.js?v=20261108-pool-import', 'js/batch.js?v=20261107', 'js/v_social_notices.js?v=20261107-social-scope', 'js/v_lookup_tools.js?v=20261108-verify', 'js/followup.js?v=20261107-chase', 'js/mail-merge.js', 'js/v_clients.js?v=20261108-verify', 'js/v_home.js?v=20261107-daily', 'js/v_prospect.js?v=20261108-verify', 'js/v_tools.js?v=20261108-pool-import', 'js/v_mail.js?v=20261107-workflow', 'js/v_pool.js?v=20261107-social-scope', 'js/v_business.js?v=20261107-sales-flow', 'js/v_today_work.js?v=20261107-sales-flow', 'js/v_sales_flow.js?v=20261107-sales-flow', 'js/v_recovery.js?v=20261107-batch', 'js/v_research.js?v=20261107-lookup', 'js/v_inbound.js', 'js/v_discovery.js?v=20261108-free-failover', 'js/v_agent.js', 'js/v_learning.js?v=20261104-abcd', 'js/v_ai.js?v=20261028-chat', 'js/v_reminders.js', 'js/v_social.js?v=20261108-pool-import');
     // Download scripts concurrently while preserving their dependency order.
     var remaining = s.length;
     s.forEach(function (src) {
