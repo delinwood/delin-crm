@@ -1,9 +1,37 @@
 (function () {
   const { esc, opt, $, $$ } = UI;
-  const COUNTRIES = (window.MARKETS || []).map(m => m.country).concat(['New Zealand', 'Ireland', 'Mexico', 'United Arab Emirates', 'Saudi Arabia', 'South Africa', 'Israel', 'Denmark', 'Finland', 'Chile']);
+  const COUNTRIES = [...new Set((window.MARKETS || []).map(m => m.country).concat(['New Zealand', 'Ireland', 'Mexico', 'United Arab Emirates', 'Saudi Arabia', 'South Africa', 'Israel', 'Denmark', 'Finland', 'Chile']))];
   const P = JSON.parse(sessionStorage.getItem('fcrm_prospect') || '{"country":"Canada","group":"spc"}');
   const enc = encodeURIComponent, G = q => 'https://www.google.com/search?q=' + enc(q);
   const LOCAL_NAME = { Germany: 'Deutschland', France: 'France', Netherlands: 'Nederland', Poland: 'Polska', Italy: 'Italia', Spain: 'España', Czechia: 'Česko', Romania: 'România', Sweden: 'Sverige', Norway: 'Norge', 'Türkiye': 'Türkiye', Japan: '日本', Austria: 'Österreich', Switzerland: 'Schweiz', Belgium: 'Belgique' };
+
+  function fairNames(s) {
+    if (!s) return [];
+    const useSemi = s.includes('；') || s.includes(';');
+    const parts = [];
+    let buf = '', depth = 0;
+    for (const ch of s) {
+      if (ch === '(' || ch === '（') depth++;
+      else if ((ch === ')' || ch === '）') && depth) depth--;
+      const sep = useSemi ? (ch === '；' || ch === ';') : ch === ',';
+      if (sep && depth === 0) {
+        if (buf.trim()) parts.push(buf.trim());
+        buf = '';
+        continue;
+      }
+      buf += ch;
+    }
+    if (buf.trim()) parts.push(buf.trim());
+    return parts;
+  }
+
+  function marketNote(m) {
+    if (!m) return '';
+    let stat = '中国份额 n/a';
+    if (m.cn391810 && m.v391810) stat = `中国份额 ${Math.round(m.cn391810 / m.v391810 * 100)}%`;
+    else if (m.q26 != null && window.MARKET_TEXT) stat = `2026年1–9月 ${window.MARKET_TEXT.wan(m.q26)} 万吨`;
+    return `🌍 排名 #${m.rank} · ${stat} · 语言 ${esc(m.lang)}<br>适合：${esc(m.best)}`;
+  }
 
   function links(country, group) {
     const lang = C.LANG[country] || 'en', kws = (C.KW[group][lang] || C.KW[group].en), en = C.KW[group].en, tw = C.TYPE_KW[lang] || C.TYPE_KW.en, place = LOCAL_NAME[country] || country;
@@ -25,7 +53,7 @@
     else out.other.push([`海关数据 (仅美国免费: ImportYeti)；其他国家可用 Volza / Panjiva (付费)`, 'https://www.importyeti.com/']);
     [...(C.DIRECTORIES._all || []), ...(C.DIRECTORIES[country] || [])].forEach(d => out.dirs.push([`site:${d} ${kws[0]}`, G(`site:${d} ${kws[0]} ${tw[0]}`)]));
     const m = (window.MARKETS || []).find(x => x.country === country);
-    if (m && m.fairs) m.fairs.split(/,\s*(?![^()]*\))/).slice(0, 2).forEach(f => { const n = f.replace(/\s*\(.*$/, '').split('/')[0].trim(); if (n) out.dirs.push([`展会参展商 Exhibitors: ${n}`, G(`"${n}" exhibitor list ${en[0]}`)]); });
+    if (m && m.fairs) fairNames(m.fairs).slice(0, 2).forEach(f => { const n = f.replace(/\s*[（(].*$/, '').split('/')[0].trim(); if (n) out.dirs.push([`展会参展商 Exhibitors: ${n}`, G(`"${n}" exhibitor list ${en[0]}`)]); });
     return out;
   }
 
@@ -39,7 +67,7 @@
         <h2>① 搜索启动器 <small>Search launcher — 自动生成当地语言关键词</small></h2>
         <div class="g3"><label>国家 Country<select id="pc">${COUNTRIES.map(c => opt(c, c, P.country)).join('')}</select></label>
           <label>产品 Product<select id="pg">${C.KW_GROUPS.map(g => opt(g[0], g[1], P.group)).join('')}</select></label>
-          <div class="note">${m ? `🌍 排名 #${m.rank} · 中国份额 ${m.cn391810 && m.v391810 ? Math.round(m.cn391810 / m.v391810 * 100) + '%' : 'n/a'} · 语言 ${esc(m.lang)}<br>适合：${esc(m.best)}` : ''}${P.country === 'USA' && ['laminate', 'engineered'].includes(P.group) ? '<div class="warn">⚠️ 美国不推强化/实木复合</div>' : ''}</div></div>
+          <div class="note">${marketNote(m)}${P.country === 'North Korea' ? '<div class="warn">⚠️ 朝鲜受制裁，不可作为开拓对象</div>' : ''}${P.country === 'USA' && ['laminate', 'engineered'].includes(P.group) ? '<div class="warn">⚠️ 美国不推强化/实木复合</div>' : ''}</div></div>
         <p class="muted small">关键词：${esc(((C.KW[P.group][C.LANG[P.country] || 'en']) || []).join(' / '))} + ${esc((C.TYPE_KW[C.LANG[P.country] || 'en'] || []).join(' / '))}。目标：进口商/分销商/建材批发商，跳过零售门店和安装公司（除非有进口/批发证据）。</p>
         ${block('Google', L.google)}${block('Google Maps（找仓库/批发市场）', L.maps)}${block('LinkedIn（找采购经理）', L.linkedin)}${block('行业目录 / 展会 Directories & fairs', L.dirs)}${block('ImportYeti / Apollo / 海关数据', L.other)}
       </section>
@@ -69,16 +97,146 @@
   const save = () => sessionStorage.setItem('fcrm_prospect', JSON.stringify(P));
 
   // ---------------- MARKETS ----------------
+  const MKT = { board: 'overall', q: '', open: null };
+  const MKT_PRODUCTS = [['laminate', '强'], ['engineered', '实'], ['spc', 'SPC'], ['wall', '墙']];
+  const sanctioned = row => row.country === 'North Korea' || row.cn === '朝鲜';
+  const crmCount = country => (UI.CLIENTS || []).filter(x => x.country === country).length;
+  const mktBoards = () => window.MARKET_BOARDS || [];
+  const mktBoard = () => mktBoards().find(b => b.id === MKT.board) || mktBoards()[0] || { id: 'overall', label: '综合榜', metric: '综合出口', highlight: [], scope: '', rows: [] };
+  const mktText = () => window.MARKET_TEXT || { wan: () => '—', ton: () => '—', growth: () => ({ text: '—', kind: 'flat' }) };
+
+  function mktQuery(row, q) {
+    if (!q) return true;
+    const hay = [row.cn, row.country, row.best, row.lang, row.fairs, row.certs, row.intro].join('\n').toLowerCase();
+    return q.toLowerCase().split(/\s+/).filter(Boolean).every(part => hay.includes(part));
+  }
+
+  function mktRows() {
+    const q = MKT.q.trim();
+    return mktBoard().rows.filter(row => mktQuery(row, q));
+  }
+
+  function mktMix(row) {
+    const hi = new Set(mktBoard().highlight || []);
+    const text = mktText();
+    return MKT_PRODUCTS.map(([key, label]) => {
+      const item = row.products && row.products[key];
+      return `<span class="${hi.has(key) ? 'on' : ''}">${label} ${item ? text.wan(item.q26) : '—'}</span>`;
+    }).join('<i>·</i>');
+  }
+
+  function closeDrawer() {
+    MKT.open = null;
+    const drawer = $('#mktDrawer'), shade = $('#mktShade');
+    if (drawer) drawer.hidden = true;
+    if (shade) shade.hidden = true;
+  }
+
+  function openDrawer(country) {
+    const board = mktBoard();
+    const row = board.rows.find(x => x.country === country);
+    const drawer = $('#mktDrawer'), shade = $('#mktShade');
+    if (!row || !drawer) return closeDrawer();
+    MKT.open = country;
+    const text = mktText();
+    const g = text.growth(row.growth, row.q26);
+    const stop = sanctioned(row);
+    const sources = (row.sources || []).filter(u => /^https?:\/\//i.test(u));
+    const names = { laminate: '强化复合', engineered: '实木复合', spc: 'SPC地板', wall: '墙板' };
+    const productRows = MKT_PRODUCTS.map(([key]) => {
+      const item = row.products && row.products[key];
+      if (!item) return '';
+      const pg = text.growth(item.growth, item.q26);
+      return `<tr><td>${esc(names[key])}</td><td title="${esc(item.q26)} 千克">${text.wan(item.q26)}</td><td class="growth-${pg.kind}">${esc(pg.text)}</td><td>${esc(text.ton(item.delta))}</td><td title="${esc(item.q25)} 千克">${text.wan(item.q25)}</td></tr>`;
+    }).join('');
+    drawer.innerHTML = `<button type="button" class="ghost sm mkt-drawer-x" id="mktClose">关闭</button>
+      <p class="muted small">${esc(board.label)} 第 ${esc(row.rank)} 名 · ${esc(row.country)}</p>
+      <h2 id="mktDrawerTitle">${esc(row.cn)}</h2>
+      ${stop ? '<div class="mkt-stop">制裁市场：不可作为开拓对象。下面是海关资料原文，不是开发建议。</div>' : ''}
+      <p class="mkt-kpis"><b>${esc(text.wan(row.q26))}</b> 万吨<small>${esc(board.metric)} · 2026年1–9月</small></p>
+      <p>月均增速 <b class="growth-${g.kind}">${esc(g.text)}</b> · 月均增量 <b>${esc(text.ton(row.delta))}</b> 吨${row.q25 == null ? '' : ` · 2025年1–10月 ${esc(text.wan(row.q25))} 万吨`}</p>
+      <p>🎯 ${esc(row.best)}</p>
+      <p>🗣 ${esc(row.lang)}</p>
+      <p>🎪 ${esc(row.fairs || '—')}</p>
+      <h3>国家介绍</h3>
+      <p class="mkt-intro" id="mktIntro">${esc(row.intro)}</p>
+      <h3>认证要点</h3>
+      <p class="mkt-intro">${esc(row.certs || '—')}</p>
+      <h3>分产品（资料口径，万吨）</h3>
+      <p class="muted small">${board.id === 'flooring' ? '上面的数字是强化、实木复合、SPC 三类合计，不含墙板。下表是该市场四个品类的分项。' : board.id === 'overall' ? '上面的数字是四个品类合计。下表是分项。' : '上面的数字只统计本榜产品。下表是同一市场四个品类的分项。'}</p>
+      <div class="tblwrap"><table class="mini"><thead><tr><th>品类</th><th>2026年1–9月</th><th>月均增速</th><th>月均增量（吨）</th><th>2025年1–10月</th></tr></thead><tbody>${productRows}</tbody></table></div>
+      ${sources.length ? `<h3>资料来源</h3><ul class="mkt-sources">${sources.map(u => `<li><a href="${esc(u)}" target="_blank" rel="noopener noreferrer">${esc(u)}</a></li>`).join('')}</ul>` : ''}
+      <p class="muted small">CRM 客户 ${crmCount(row.country)} 家 · 英语国名 <b>${esc(row.country)}</b></p>
+      ${stop ? '<p class="mkt-flag">不可开拓</p>' : `<a class="btn primary" href="#/prospect" data-c="${esc(row.country)}">🔎 去找客户</a>`}`;
+    drawer.hidden = false;
+    if (shade) shade.hidden = false;
+    $('#mktClose').onclick = closeDrawer;
+    const go = drawer.querySelector('[data-c]');
+    if (go) go.onclick = () => { P.country = go.dataset.c; save(); };
+    drawer.scrollTop = 0;
+  }
+
+  function fillMarkets() {
+    const board = mktBoard();
+    const text = mktText();
+    const rows = mktRows();
+    const body = $('#mktBody');
+    if (!body) return;
+    $('#mktScope').textContent = board.scope || '';
+    $('#mktMetric').textContent = `2026年1–9月 ${board.metric}（万吨）`;
+    $('#mktCount').textContent = `${board.label} · 显示 ${rows.length} / ${board.rows.length}`;
+    $$('[data-board]').forEach(btn => {
+      const on = btn.dataset.board === board.id;
+      btn.classList.toggle('on', on);
+      btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+    });
+    body.innerHTML = rows.map(row => {
+      const g = text.growth(row.growth, row.q26);
+      const stop = sanctioned(row);
+      return `<tr class="${stop ? 'mkt-sanction' : ''}" data-country="${esc(row.country)}">
+        <td data-l="排名">${esc(row.rank)}</td>
+        <td data-l="国家"><div><b>${esc(row.cn)}</b><div class="muted">${esc(row.country)}</div>${stop ? '<div class="mkt-flag">制裁 · 不可作为开拓对象</div>' : ''}</div></td>
+        <td class="num" data-l="万吨" title="${esc(row.q26)} 千克"><b>${esc(text.wan(row.q26))}</b></td>
+        <td class="num growth-${g.kind}" data-l="增速">${esc(g.text)}</td>
+        <td class="num" data-l="增量">${esc(text.ton(row.delta))}</td>
+        <td class="notes" data-l="资料"><div><div>🎯 ${esc(row.best)}</div><div class="mkt-mix">${mktMix(row)}</div><div>🗣 ${esc(row.lang)}</div><div class="mkt-fairs">🎪 ${esc(row.fairs || '—')}</div><div class="mkt-actions"><button type="button" class="ghost sm" data-intro="${esc(row.country)}">查看介绍</button>${stop ? '<span class="mkt-flag">不可开拓</span>' : `<a href="#/prospect" data-c="${esc(row.country)}">🔎 去找客户</a>`}</div></div></td>
+        <td class="num" data-l="客户">${crmCount(row.country)}</td>
+      </tr>`;
+    }).join('') || '<tr><td colspan="7" class="empty">没有匹配的市场</td></tr>';
+    if (MKT.open) {
+      if (board.rows.some(row => row.country === MKT.open)) openDrawer(MKT.open);
+      else closeDrawer();
+    }
+  }
+
   function markets() {
-    const M = window.MARKETS || [], f = v => v == null ? 'n/a' : (v / 1e6).toLocaleString('en-US', { maximumFractionDigits: 0 });
-    const n = c => UI.CLIENTS.filter(x => x.country === c).length;
-    UI.render(`<div class="pagehead"><h1>目标市场 Top 20 <small>Target markets (UN Comtrade 2023, USD million)</small></h1></div>
-      <section class="card tbl"><table class="mkt"><thead><tr><th>#</th><th>国家 Country</th><th>核心合计*</th><th>3918.10 PVC地板/墙板</th><th>中国份额</th><th>4418.75 实木复合</th><th>3916.20 PVC型材</th><th>4411 MDF/HDF(强化代理)</th><th>2024 3918.10</th><th>最适合产品 / 语言 / 展会 / 备注</th><th>CRM客户</th></tr></thead><tbody>
-      ${M.map(m => `<tr><td>${m.rank}</td><td><b>${esc(m.cn)}</b><div class="muted">${esc(m.country)}</div></td><td><b>${f(m.core)}</b></td><td>${f(m.v391810)}</td>
-        <td>${m.cn391810 && m.v391810 ? `<div class="share"><i style="width:${m.cn391810 / m.v391810 * 100}%"></i></div>${Math.round(m.cn391810 / m.v391810 * 100)}%` : 'n/a'}</td><td>${f(m.v441875)}</td><td>${f(m.v391620)}</td><td>${f(m.v4411)}</td><td>${f(m.v391810_2024)}</td>
-        <td class="notes"><div>🎯 ${esc(m.best)}</div><div>🗣 ${esc(m.lang)}</div><div>🎪 ${esc(m.fairs)}</div><div class="muted">${esc(m.note)}</div><a href="#/prospect" data-c="${esc(m.country)}">🔎 去找客户</a></td><td>${n(m.country)}</td></tr>`).join('')}</tbody></table></section>
-      <p class="muted small">* 核心合计 = 3918.10 + 4418.75 + 3916.20。${esc(window.MARKETS_SOURCE || '')} 未向 Comtrade 申报 2023 数据的国家不在表内（未做镜像估算）。</p>`, 'markets');
-    $$('[data-c]').forEach(a => a.onclick = () => { P.country = a.dataset.c; save(); });
+    const boards = mktBoards();
+    if (!boards.some(b => b.id === MKT.board)) MKT.board = 'overall';
+    const board = mktBoard();
+    UI.render(`<div class="pagehead"><div><h1>目标市场 <small>中国海关出口 · 2026年1–9月对比2025年1–10月</small></h1></div>
+      <label class="mkt-search-label">搜索<input id="mktQ" class="mkt-search" placeholder="国家、英语名或产品，如 英国 / Philippines / SPC" value="${esc(MKT.q)}"></label></div>
+      <div class="mkt-boards" role="tablist">${boards.map(b => `<button type="button" class="mkt-tab ${b.id === board.id ? 'on' : ''}" role="tab" data-board="${esc(b.id)}" aria-pressed="${b.id === board.id ? 'true' : 'false'}">${esc(b.label)} <small>${b.rows.length}</small></button>`).join('')}</div>
+      <p class="info" id="mktScope">${esc(board.scope || '')}</p>
+      <p class="muted small" id="mktCount"></p>
+      <section class="card tbl"><table class="mkt"><thead><tr><th>#</th><th>国家 Country</th><th class="num" id="mktMetric">2026年1–9月 ${esc(board.metric)}（万吨）</th><th class="num" title="（2026年1–9月÷9）相对（2025年1–10月÷10）">月均增速</th><th class="num" title="月均增量，吨/月">月均增量（吨）</th><th>适合产品 / 分项万吨 / 语言 / 展会</th><th>CRM客户</th></tr></thead><tbody id="mktBody"></tbody></table></section>
+      <p class="muted small">${esc(window.MARKETS_SOURCE || '')} 万吨 = 千克 ÷ 10,000,000；吨/月 = 月均增量 ÷ 1,000。增速保留 1 位小数。无 2025 年出口、2026 年有量时显示「新市场」；2026 年没有出口量时显示「2026年暂无」。</p>
+      <div id="mktShade" class="mkt-shade" hidden></div><aside id="mktDrawer" class="mkt-drawer" role="dialog" aria-modal="true" aria-labelledby="mktDrawerTitle" hidden></aside>`, 'markets');
+    const search = $('#mktQ');
+    search.oninput = () => { MKT.q = search.value; fillMarkets(); };
+    $$('[data-board]').forEach(btn => btn.onclick = () => { MKT.board = btn.dataset.board; fillMarkets(); });
+    $('#mktBody').onclick = e => {
+      const intro = e.target.closest('[data-intro]');
+      if (intro) { openDrawer(intro.dataset.intro); return; }
+      const go = e.target.closest('[data-c]');
+      if (go) { P.country = go.dataset.c; save(); }
+    };
+    $('#mktShade').onclick = closeDrawer;
+    document.removeEventListener('keydown', marketsKey);
+    document.addEventListener('keydown', marketsKey);
+    fillMarkets();
+  }
+  function marketsKey(e) {
+    if (e.key === 'Escape' && $('#mktDrawer') && !$('#mktDrawer').hidden) closeDrawer();
   }
 
   // ---------------- POOL ----------------
