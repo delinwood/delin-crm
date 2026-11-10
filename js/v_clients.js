@@ -225,6 +225,7 @@
         <div class="quick">${c.company_phone ? UI.link(UI.tel(c.company_phone, c), '📞 拨打', 'btn ghost') : ''}${wa ? UI.link(wa, '💬 WhatsApp', 'btn ghost') : ''}${c.company_email ? UI.link('mailto:' + c.company_email, '✉️ 邮件', 'btn ghost') : ''}${c.website ? UI.link(UI.url(c.website), '🌐 网站', 'btn ghost') : ''}${c.contact_linkedin ? UI.link(UI.url(c.contact_linkedin), 'in LinkedIn', 'btn ghost') : ''}<a class="btn primary" href="#/templates/${esc(c.id)}">✍️ 写开发信</a></div></section>
       ${usWarn ? '<div class="warn">⚠️ 美国只开发墙板、格栅、木饰面及吸音板；不开发任何地板（含SPC）</div>' : ''}
       ${lt && !lt.work ? `<div class="info">🌙 客户当地现在是 ${esc(lt.text)}，非工作时间——建议邮件或定时发送，电话/WhatsApp 等对方上班再联系。</div>` : ''}
+      ${UI.whatsappCard ? UI.whatsappCard(c) : ''}
       <div class="grid2 dgrid"><div class="dprof">
         <section class="card pad"><div class="sec-h"><h2>客户资料 <small>Profile</small></h2><div><button class="ghost sm" id="edit">编辑 Edit</button>${canDelete ? ` <button class="ghost sm danger" id="del">删除（移入回收站）</button>` : ''}</div></div>
           <h3>公司信息 Company</h3>${kv('地址 Address', esc(c.address))}${kv('公司电话 Phone', c.company_phone ? UI.link(UI.tel(c.company_phone, c), c.company_phone) : '')}${kv('WhatsApp', wa ? UI.link(wa, c.whatsapp || c.company_phone + '（同公司电话，未核实是否开通）') : '')}
@@ -303,7 +304,7 @@
 
   // ---------------- FORM ----------------
   function form(c, prefill) {
-    const isNew = !c; c = c || { status: '未联系', priority: 'C', country: '', products: [], tags: [], ...(prefill || {}) }; const admin = UI.ME.role === 'admin';
+    const isNew = !c, prior = c || {}; c = c || { status: '未联系', priority: 'C', country: '', products: [], tags: [], ...(prefill || {}) }; const admin = UI.ME.role === 'admin';
     const inp = (k, label, type, extra) => `<label>${label}<input name="${k}" type="${type || 'text'}" value="${esc(c[k] || '')}" ${extra || ''}></label>`;
     const lockNote = !admin && !isNew ? '<p class="muted small">🔒 初始资料（名称/国家/网站/电话/邮箱/地址）可修改但不可清空；负责人由管理员分配。</p>' : '';
     UI.render(`<div class="crumbs"><a href="${isNew ? '#/list' : '#/client/' + esc(c.id)}">← 返回 Back</a></div>
@@ -313,7 +314,11 @@
         <label>国家 Country<input name="country" list="countries" value="${esc(c.country || '')}"></label>${inp('state', '州/省 State/Region (缩写如 CA, ON)')}${inp('city', '城市 City')}${inp('address', '地址 Address')}
         ${inp('company_phone', '公司电话 Phone', 'tel')}${inp('whatsapp', 'WhatsApp（含国家码）', 'tel')}${inp('company_email', '公司邮箱 Email', 'email')}${inp('website', '网站 Website')}</div>
       <datalist id="countries">${Object.keys(C.TZ).map(k => `<option value="${esc(k)}">`).join('')}</datalist>
-      <h3>采购联系人 Purchasing contact <small>只填已核实的信息</small></h3><div class="g3">${inp('contact_name', '姓名 Name')}${inp('contact_title', '职位 Title')}${inp('contact_linkedin', 'LinkedIn URL')}</div>
+      <h3>触达方式 Reach</h3><div id="reachHint" class="info" hidden></div><div class="g3">
+        <label>首选联系 Preferred<select name="reach_channel">${opt('', '未指定', c.reach_channel || '')}${[['email', '邮件'], ['whatsapp', 'WhatsApp'], ['phone', '电话'], ['other', '其他']].map(x => opt(x[0], x[1], c.reach_channel || '')).join('')}</select></label>
+        <label>客户时区 Timezone<select name="timezone">${opt('', '按国家/州自动', c.timezone || '')}${C.timezoneChoices().map(x => opt(x[0], x[1], c.timezone || '')).join('')}${c.timezone && !C.timezoneChoices().some(x => x[0] === c.timezone) ? opt(c.timezone, c.timezone, c.timezone) : ''}</select></label>
+        <p class="muted small">中东客户，或首选 WhatsApp 的新客户，需要填写 WhatsApp、时区和下面的默认联系人。已经缺少这些资料的旧档案可以先保存其他修改。</p></div>
+      <h3>默认联系人 Default contact <small>只填已核实的信息；更多人在业务档案里添加</small></h3><div class="g3">${inp('contact_name', '姓名 Name')}${inp('contact_title', '职位 Title')}${inp('contact_linkedin', 'LinkedIn URL')}</div>
       <h3>业务 Business</h3><div class="prods">${C.PRODUCTS.map(p => `<label class="ck"><input type="checkbox" name="products" value="${p[0]}" ${(c.products || []).includes(p[0]) ? 'checked' : ''}> ${p[1]} <small>${p[2]}</small></label>`).join('')}</div>
       <div class="g3"><label>优先级 Priority<select name="priority">${C.PRIORITIES.map(v => opt(v, v+" · "+C.PRIORITY_NAMES[v], c.priority)).join('')}</select></label>
         <label>跟进状态 Status<select name="status">${C.STATUSES.filter(s => admin || s[0] !== '无效' || c.status === '无效').map(s => opt(s[0], s[0] + ' ' + s[1], c.status)).join('')}</select></label>
@@ -325,7 +330,18 @@
       <label>来源/核实说明 Source / verification<textarea name="source_note" rows="2" placeholder="进口证据摘要、证据 URL、核实日">${esc(c.source_note || '')}</textarea></label>
       <div class="warn" id="uswarn" hidden>⚠️ 美国市场不推强化/实木复合地板 (USA: no laminate / engineered)</div>
       <div class="actions"><button class="primary">保存 Save</button></div></form>`, isNew ? 'list' : 'list');
-    const f = $('#cf'), chk = () => { $('#uswarn').hidden = !(/^(usa|us|united states)$/i.test(f.country.value.trim()) && [...f.querySelectorAll('[name=products]:checked')].some(x => C.US_EXCLUDED.includes(x.value))); };
+    const f = $('#cf'), chk = () => { $('#uswarn').hidden = !(/^(usa|us|united states)$/i.test(f.country.value.trim()) && [...f.querySelectorAll('[name=products]:checked')].some(x => C.US_EXCLUDED.includes(x.value))); syncReach(); };
+    const syncReach = () => {
+      const next = { country: f.country.value.trim(), reach_channel: f.reach_channel.value };
+      const required = C.reachRequired(isNew, prior, next);
+      const hint = $('#reachHint');
+      const prompted = required || C.middleEast(next.country) || next.reach_channel === 'whatsapp';
+      hint.hidden = !prompted; hint.className = required ? 'warn' : 'info';
+      hint.textContent = required
+        ? '这次是新建中东客户，或刚改为中东 / WhatsApp。请填写 WhatsApp（含国家码）、时区和默认联系人。'
+        : '建议补齐 WhatsApp、时区和默认联系人。旧档案缺少这三项时，仍可保存其他修改。';
+      f.whatsapp.required = f.timezone.required = f.contact_name.required = required;
+    };
     const syncDeal = () => {
       f.elements.deal_note.required = f.status.value === '成交';
       $('#dealNote').hidden = !f.elements.deal_note.required;
@@ -338,7 +354,9 @@
     if (isNew) ['company_name', 'website', 'company_phone'].forEach(k => f[k].addEventListener('change', dupCheck));
     f.onsubmit = async e => { e.preventDefault(); const d = {};
       ['company_name', 'customer_type', 'country', 'state', 'city', 'address', 'company_phone', 'whatsapp', 'company_email', 'website', 'contact_name', 'contact_title', 'contact_linkedin', 'priority', 'status', 'apollo_criteria', 'notes', 'source_note'].forEach(k => d[k] = f[k].value.trim());
+      d.timezone = f.timezone.value.trim() || null; d.reach_channel = f.reach_channel.value || null;
       d.state = d.state.toUpperCase().length <= 3 ? d.state.toUpperCase() : d.state; d.next_follow_up = f.next_follow_up.value || null;
+      if (C.reachRequired(isNew, prior, d) && (!d.whatsapp || !d.timezone || !d.contact_name)) return UI.toast('请填写 WhatsApp、时区和默认联系人', 1);
       if (d.status === '成交') {
         d.deal_note = f.elements.deal_note.value.trim();
         if (!d.deal_note) return UI.toast('请填写成交说明',true);
