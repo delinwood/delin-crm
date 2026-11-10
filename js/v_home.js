@@ -29,6 +29,9 @@
       <section class="card pad"><div class="sec-h"><h2>✉️ 每7天追单提醒 <small>${emailDue.length} 家已到期</small></h2><a href="#/email-reminders">查看全部提醒 ›</a></div>
         <p class="muted small">领取或新建自己的客户后开始计时，登记实际联系后重新计时。连续30天未记录实际联系时，系统转入谷歌客户公海。已成交客户保留负责人，请在客户详情填写成交说明。</p>
         <ul class="todo">${emailDue.slice(0, 15).map(row).join('') || '<li class="muted">暂无到期追单任务</li>'}</ul></section>
+      <section class="card pad"><div class="sec-h"><h2>💬 WhatsApp 待联系 <small>${scope.filter(c => c.status !== '成交' && (C.whatsappDue(c, t) || C.whatsappNeedsPlan(c))).length} 家</small></h2><a href="#/whatsapp">打开触达清单 ›</a></div>
+        <p class="muted small">到期的 WhatsApp 跟进，以及已把首选联系设为 WhatsApp、但还没登记第一次联系的客户。打开聊天仍使用原来的 WhatsApp 链接。</p>
+        <ul class="todo">${scope.filter(c => c.status !== '成交' && (C.whatsappDue(c, t) || C.whatsappNeedsPlan(c))).slice(0, 15).map(row).join('') || '<li class="muted">暂无 WhatsApp 待联系</li>'}</ul></section>
       <div class="grid3">
         <section class="card pad"><h2>🔴 逾期 + 今日 <small>Overdue & today</small></h2><ul class="todo">${[...over, ...today].slice(0, 30).map(row).join('') || '<li class="muted">🎉 没有逾期或今日任务</li>'}</ul></section>
         <section class="card pad"><h2>📅 未来7天 <small>Upcoming</small></h2><ul class="todo">${week.slice(0, 20).map(row).join('') || '<li class="muted">无</li>'}</ul>

@@ -56,6 +56,10 @@
       add(x.account_id,'deal:'+x.id+':'+x.data.next_date,'商机下一步',x.data.title+' · '+x.data.stage,x.data.next_date,'#/business/'+x.account_id);
     for(const c of clients.values())if(UI.emailDue(c))
       add(c.id,'chase:'+c.email_anchor_at,'7天追单提醒','登记实际联系后，系统会重新计时',d);
+    for(const c of clients.values()){
+      if(C.whatsappDue(c,d))add(c.id,'wa:'+c.whatsapp_next_on,'WhatsApp 跟进到期','按对方当地工作时间联系，并登记本次沟通',c.whatsapp_next_on,'#/whatsapp');
+      else if(C.whatsappNeedsPlan(c))add(c.id,'wa-start','安排 WhatsApp 触达','补齐号码、时区和默认联系人，或先记下下次联系日期',d,'#/whatsapp');
+    }
     for(const x of plans)if(clients.get(x.client_id)?.status==='成交'){
       const due=shift(x.next_purchase_on,-x.remind_days);
       if(due<=d)add(x.client_id,'reorder:'+x.next_purchase_on,'老客户补货确认',x.product+' · 预计补货 '+x.next_purchase_on,due,reorderPath(x.client_id));
@@ -68,7 +72,7 @@
     }
     const items=[...records.values()].sort((a,b)=>a.due.localeCompare(b.due));
     UI.render(`<div class="pagehead"><h1>今日待办</h1><div class="actions"><a class="btn ghost" href="#/home">回工作台</a><a class="btn ghost" href="#/inquiry-inbox">询盘待处理箱</a><a class="btn ghost" href="#/reorder-plan">管理补货计划</a><button id="workReload" class="ghost">刷新</button></div></div>
-      <section class="card pad"><p>按北京时间。包含近30天已同步的客户回复、报价有效期、已签收样品、商机下一步、追单和补货提醒。</p>
+      <section class="card pad"><p>按北京时间。包含近30天已同步的客户回复、报价有效期、已签收样品、商机下一步、追单、WhatsApp 触达和补货提醒。</p>
       <p>当前 ${items.length} 项，${[...done.values()].filter(x=>x.next_on>d&&clients.has(x.client_id)).length} 项已有未来安排。</p>
       ${items.map((item,i)=>`<article class="card pad"><b>${esc(item.title)}</b> · <a href="${path(item.client.id)}">${esc(item.client.company_name)}</a> · ${esc(UI.userName(item.client.owner_id))}
         <p>${esc(item.desc)} · ${UI.dueBadge(item.due)}</p><div class="actions"><a class="btn ghost sm" href="${esc(item.href)}">打开处理</a><button class="ghost sm" data-work-finish="${i}">记录结果</button></div></article>`).join('')||'<p>暂无到期事项。</p>'}</section>`,'home');

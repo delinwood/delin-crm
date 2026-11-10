@@ -333,6 +333,55 @@ export function contactsFromText(text, url, at) {
   return suggestions;
 }
 
+const PERSON_LABEL = /^(?:contact person|contact name|purchasing contact|procurement contact|contact|attn\.?|attention|联系人|采购联系人|采购负责人|姓名)\s*[:：]\s*(.{2,160})$/i;
+const TITLE_LABEL = /^(?:title|position|job title|role|职位|职务)\s*[:：]\s*(.{2,80})$/i;
+const EMAIL_LITERAL = /[A-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Z0-9](?:[A-Z0-9-]*[A-Z0-9])?(?:\.[A-Z0-9](?:[A-Z0-9-]*[A-Z0-9])?)+/gi;
+const PHONE_LITERAL = /(?:\+\d{1,3}[ .()-]*)?\(?\d[\d ()\u00a0.-]{5,}\d/g;
+
+function usableEmail(value) {
+  const email = String(value || '').replace(/[.,;:]+$/, '').toLowerCase();
+  if (!email || /\.(?:png|jpe?g|webp|svg|gif)$/i.test(email) || /^(?:example|test|noreply|no-reply)@/i.test(email) || /@(?:example\.(?:com|org|net)|sentry\.io)$/i.test(email)) return '';
+  return email;
+}
+
+/** Names, roles and numbers copied from an explicitly labeled line. Never invents an email. */
+export function disclosedContacts(text) {
+  const people = [], titles = [], whatsapps = [], seen = new Set();
+  for (const raw of String(text || '').split('\n')) {
+    const line = raw.replace(/\s+/g, ' ').trim();
+    if (!line || line.length > 400) continue;
+    if (/\bwhats\s*app\b|\bwhatsapp\b/i.test(line)) {
+      for (const match of line.matchAll(PHONE_LITERAL)) {
+        const digits = match[0].replace(/\D/g, '');
+        if (digits.length < 7 || digits.length > 15 || seen.has('wa:' + digits)) continue;
+        seen.add('wa:' + digits);
+        whatsapps.push({ value: match[0].trim(), excerpt: line.slice(0, 240) });
+      }
+    }
+    const title = line.match(TITLE_LABEL);
+    if (title && title[1].trim()) titles.push({ value: title[1].trim().slice(0, 80), excerpt: line.slice(0, 240) });
+    const labeled = line.match(PERSON_LABEL);
+    if (!labeled || people.length >= 8) continue;
+    let rest = labeled[1];
+    const emails = [...rest.matchAll(EMAIL_LITERAL)].map(match => usableEmail(match[0])).filter(Boolean);
+    const phones = [...rest.matchAll(PHONE_LITERAL)].map(match => match[0].trim()).filter(phone => {
+      const digits = phone.replace(/\D/g, '');
+      return digits.length >= 7 && digits.length <= 15;
+    });
+    for (const email of emails) rest = rest.replace(new RegExp(email.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'ig'), ' ');
+    for (const phone of phones) rest = rest.split(phone).join(' ');
+    const parts = rest.split(/[,，|/]/).map(part => part.trim()).filter(Boolean);
+    const name = (parts[0] || '').replace(/^(?:mr|mrs|ms|dr)\.?\s+/i, '').trim();
+    const role = parts.slice(1).join(', ').replace(/\b(?:e-?mail|tel(?:ephone)?|phone|mobile|whatsapp)\b[:：]?/ig, '').trim().slice(0, 80);
+    if (!/^[^@\d]{2,80}$/.test(name) || /\b(?:ltd|llc|inc|gmbh|company|trading)\b/i.test(name)) continue;
+    const key = name.toLowerCase() + '|' + (emails[0] || '');
+    if (seen.has(key)) continue;
+    seen.add(key);
+    people.push({ name, role, email: emails[0] || '', phone: phones[0] || '', whatsapp: /\bwhatsapp\b/i.test(line) ? (phones[0] || '') : '', excerpt: line.slice(0, 240) });
+  }
+  return { people, titles: titles.slice(0, 4), whatsapps: whatsapps.slice(0, 4) };
+}
+
 export function redactSearchResult(result, { provider, storageAllowed }) {
   if (provider !== 'brave' || storageAllowed) return result;
   const results = (result?.results || []).map(item => ({

@@ -120,7 +120,7 @@
     const mine = messages.filter(m => m.sender_id === UI.ME.id && Date.parse(m.attempted_at || '') > Date.now() - 86400000).length;
     const isAdmin = UI.ME.role === 'admin';
     selectedLimitUser ||= UI.ME.id;
-    UI.render(`<div class="pagehead"><h1>邮件中心</h1><div class="actions"><button class="ghost" id="mailRefresh">刷新</button><a class="btn ghost" href="#/inbound">客户回复 / 退信同步</a><a class="btn primary" href="#/list">选择客户写邮件</a></div></div>
+    UI.render(`<div class="pagehead"><h1>邮件中心</h1><div class="actions"><button class="ghost" id="mailRefresh">刷新</button><a class="btn ghost" href="#/mail-health">退信与节奏</a><a class="btn ghost" href="#/inbound">客户回复 / 退信同步</a><a class="btn primary" href="#/list">选择客户写邮件</a></div></div>
       ${error ? `<div class="warn">${esc(error)}。配置完成后才可发信。</div>` : ''}
       <section class="card pad"><h2>我的发件邮箱</h2><p>${account?.connected ? `已连接：<b>${esc(account.email)}</b> <button class="ghost sm" id="mailDisconnect">断开连接</button>` : '<button class="primary" id="mailConnect">连接 Gmail</button>'} · <a href="#/me">修改工作邮箱和签名</a></p>
       <p>系统过去24小时已尝试 ${mine} 封${account ? `，${limitLabel(account.daily_limit)}${account.daily_limit === 0 ? '' : `，剩余 ${Math.max(0, account.daily_limit - mine)} 封`}` : ''}。不设系统每日上限仍保留每分钟1封的节奏；Gmail网页、手机等其他渠道发送的邮件不计入这里，Google可能提前限发。</p>

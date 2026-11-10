@@ -35,7 +35,7 @@
   UI.tags = arr => (arr || []).map(t => `<span class="tag">#${esc(t)}</span>`).join('');
   UI.opt = (v, label, sel) => `<option value="${esc(v)}" ${String(sel) === String(v) ? 'selected' : ''}>${esc(label)}</option>`;
   UI.dueBadge = d => { if (!d) return ''; const t = UI.today(); return `<span class="due ${d < t ? 'over' : d === t ? 'today' : ''}">${d < t ? '逾期 ' : d === t ? '今天 ' : ''}${esc(d)}</span>`; };
-  UI.link = (href, text, cls) => href ? `<a class="${cls || ''}" href="${esc(href)}" ${/^https?:/.test(href) ? 'target="_blank" rel="noopener"' : ''}>${esc(text)}</a>` : '';
+  UI.link = (href, text, cls) => href ? `<a class="${cls || ''}" href="${esc(href)}" ${/^https?:/.test(href) ? 'target="_blank" rel="noopener noreferrer"' : ''}>${esc(text)}</a>` : '';
   UI.canExport = () => !!UI.ME?.active && UI.ME.username === 'boss' && UI.ME.role === 'admin';
   UI.requireExport = async () => {
     try { if(!UI.canExport()) throw new Error('仅老板账号可以导出表格或备份');
@@ -59,7 +59,7 @@
     ['home','#/home','🏠','工作台','Today','','概览'],
     ['list','#/list','📇','客户管理','Clients','','客户开发'],['pool','#/pool','🌊','谷歌客户公海','Google Lead Pool','','客户开发'],['client-import','#/client-import','📥','批量导入客户','Import','','客户开发'],['invalid','#/invalid','📁','无效客户','Invalid','','客户开发'],
     ['prospect','#/prospect','🔎','找客户','Prospecting','','获客工具'],['lookup-tools','#/lookup-tools','🔍','客户核实工具','Verification','','获客工具'],['markets','#/markets','🌍','目标市场','Markets','','获客工具'],['agent','#/ai','🤖','智能助手','Assistant','','获客工具'],
-    ['mail','#/mail','📨','邮件中心','Email','','沟通跟进'],['email-reminders','#/email-reminders','⏰','跟进提醒','Reminders','','沟通跟进'],['templates','#/templates','✉️','话术模板','Templates','','沟通跟进'],
+    ['mail','#/mail','📨','邮件中心','Email','','沟通跟进'],['mail-health','#/mail-health','📬','退信与节奏','Delivery','','沟通跟进'],['whatsapp','#/whatsapp','💬','WhatsApp 触达','WhatsApp','','沟通跟进'],['email-reminders','#/email-reminders','⏰','跟进提醒','Reminders','','沟通跟进'],['templates','#/templates','✉️','话术模板','Templates','','沟通跟进'],
     ['business','#/business','📈','业务工作台','Business','','业务与培训'],['learning','#/learning','📚','学习中心','Learning','','业务与培训'],
     ['dash','#/dashboard','📊','团队看板','Dashboard','admin','管理中心'],['admin','#/admin','⚙️','系统管理','Admin','admin','管理中心']
   ];

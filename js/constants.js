@@ -31,7 +31,8 @@ window.C = {
   FIELDS: [
     ['company_name','公司名称','Company Name'],['customer_type','客户类型','Customer Type'],['country','国家','Country'],
     ['state','州/地区','State/Region'],['city','城市','City'],['address','地址','Address'],['company_phone','公司电话','Company Phone'],
-    ['whatsapp','WhatsApp','WhatsApp'],['company_email','公司邮箱','Company Email'],['website','网站','Website'],
+    ['whatsapp','WhatsApp','WhatsApp'],['timezone','时区','Timezone'],['reach_channel','首选联系','Preferred channel'],
+    ['company_email','公司邮箱','Company Email'],['website','网站','Website'],
     ['contact_name','采购联系人','Purchasing Contact'],['contact_title','职位','Title'],['contact_linkedin','LinkedIn','LinkedIn'],
     ['products','匹配产品','Matching Products'],['apollo_criteria','Apollo搜索条件','Apollo Search Criteria'],['priority','优先级','Priority'],
     ['owner','负责业务员','Owner'],['status','跟进状态','Follow-up Status'],['next_follow_up','下次跟进','Next Follow-up'],['tags','标签','Tags'],
@@ -52,6 +53,8 @@ C.TZ = {
   'Belgium': 'Europe/Brussels', 'Switzerland': 'Europe/Zurich', 'Austria': 'Europe/Vienna', 'Czechia': 'Europe/Prague', 'Romania': 'Europe/Bucharest',
   'Spain': 'Europe/Madrid', 'Sweden': 'Europe/Stockholm', 'Türkiye': 'Europe/Istanbul', 'India': 'Asia/Kolkata', 'Japan': 'Asia/Tokyo', 'Norway': 'Europe/Oslo',
   'New Zealand': 'Pacific/Auckland', 'Ireland': 'Europe/Dublin', 'Mexico': 'America/Mexico_City', 'United Arab Emirates': 'Asia/Dubai', 'Saudi Arabia': 'Asia/Riyadh',
+  'Qatar': 'Asia/Qatar', 'Kuwait': 'Asia/Kuwait', 'Bahrain': 'Asia/Bahrain', 'Oman': 'Asia/Muscat', 'Jordan': 'Asia/Amman', 'Egypt': 'Africa/Cairo',
+  'Iraq': 'Asia/Baghdad', 'Lebanon': 'Asia/Beirut', 'Yemen': 'Asia/Aden', 'Iran': 'Asia/Tehran', 'Syria': 'Asia/Damascus', 'Palestine': 'Asia/Gaza',
   'South Africa': 'Africa/Johannesburg', 'Brazil': 'America/Sao_Paulo', 'Chile': 'America/Santiago', 'Israel': 'Asia/Jerusalem', 'Denmark': 'Europe/Copenhagen', 'Finland': 'Europe/Helsinki'
 };
 C.STATE_TZ = {
@@ -60,8 +63,27 @@ C.STATE_TZ = {
   Canada: { BC: 'America/Vancouver', AB: 'America/Edmonton', SK: 'America/Regina', MB: 'America/Winnipeg', ON: 'America/Toronto', QC: 'America/Toronto', NS: 'America/Halifax', NB: 'America/Moncton', NL: 'America/St_Johns', PE: 'America/Halifax' },
   Australia: { WA: 'Australia/Perth', SA: 'Australia/Adelaide', NT: 'Australia/Darwin', QLD: 'Australia/Brisbane', VIC: 'Australia/Melbourne', NSW: 'Australia/Sydney', TAS: 'Australia/Hobart', ACT: 'Australia/Sydney' }
 };
-C.tzFor = c => ((C.STATE_TZ[c.country] || {})[(c.state || '').toUpperCase()]) || C.TZ[c.country] || null;
-C.DIAL = { USA: '1', Canada: '1', 'United Kingdom': '44', Australia: '61', Germany: '49', France: '33', Italy: '39', Netherlands: '31', Poland: '48', Belgium: '32', Switzerland: '41', Austria: '43', Czechia: '420', Romania: '40', Spain: '34', Sweden: '46', 'Türkiye': '90', India: '91', Japan: '81', Norway: '47', 'New Zealand': '64', Ireland: '353', Mexico: '52' };
+C.MIDDLE_EAST = ['Saudi Arabia', 'United Arab Emirates', 'Qatar', 'Kuwait', 'Bahrain', 'Oman', 'Jordan', 'Egypt', 'Iraq', 'Lebanon', 'Yemen', 'Israel', 'Türkiye', 'Iran', 'Syria', 'Palestine'];
+C.middleEast = country => C.MIDDLE_EAST.includes(String(country || '').trim());
+C.reachRequired = (isNew, prev, next) => {
+  prev = prev || {}; next = next || {};
+  const nowME = C.middleEast(next.country), wasME = C.middleEast(prev.country);
+  const nowWA = next.reach_channel === 'whatsapp', wasWA = prev.reach_channel === 'whatsapp';
+  return !!isNew ? (nowME || nowWA) : ((nowME && !wasME) || (nowWA && !wasWA));
+};
+C.whatsappDue = (c, today) => !!(c && c.whatsapp_next_on && String(c.whatsapp_next_on) <= today && c.status !== '无效');
+C.whatsappNeedsPlan = c => !!(c && c.reach_channel === 'whatsapp' && !c.whatsapp_touch_at && !c.whatsapp_next_on && c.status !== '无效' && c.status !== '成交');
+C.tzFor = c => {
+  if (!c) return null;
+  if (c.timezone) return c.timezone;
+  return ((C.STATE_TZ[c.country] || {})[(c.state || '').toUpperCase()]) || C.TZ[c.country] || null;
+};
+C.timezoneChoices = () => {
+  const labels = { 'Asia/Riyadh': '沙特', 'Asia/Dubai': '阿联酋', 'Asia/Qatar': '卡塔尔', 'Asia/Kuwait': '科威特', 'Asia/Bahrain': '巴林', 'Asia/Muscat': '阿曼', 'Asia/Amman': '约旦', 'Africa/Cairo': '埃及', 'Asia/Baghdad': '伊拉克', 'Asia/Beirut': '黎巴嫩', 'Asia/Aden': '也门', 'Asia/Jerusalem': '以色列', 'Asia/Tehran': '伊朗', 'Asia/Damascus': '叙利亚', 'Asia/Gaza': '巴勒斯坦', 'Europe/Istanbul': '土耳其' };
+  const zones = [...new Set([...Object.values(C.TZ), ...Object.values(C.STATE_TZ).flatMap(row => Object.values(row))])];
+  return zones.map(zone => [zone, (labels[zone] ? labels[zone] + ' · ' : '') + zone]).sort((a, b) => a[1].localeCompare(b[1], 'zh'));
+};
+C.DIAL = { USA: '1', Canada: '1', 'United Kingdom': '44', Australia: '61', Germany: '49', France: '33', Italy: '39', Netherlands: '31', Poland: '48', Belgium: '32', Switzerland: '41', Austria: '43', Czechia: '420', Romania: '40', Spain: '34', Sweden: '46', 'Türkiye': '90', India: '91', Japan: '81', Norway: '47', 'New Zealand': '64', Ireland: '353', Mexico: '52', 'Saudi Arabia': '966', 'United Arab Emirates': '971', Qatar: '974', Kuwait: '965', Bahrain: '973', Oman: '968', Jordan: '962', Egypt: '20', Iraq: '964', Lebanon: '961', Israel: '972', Yemen: '967', Iran: '98', Syria: '963', Palestine: '970' };
 
 // ---- Prospecting keywords (local language) ----
 C.LANG = { Germany: 'de', Austria: 'de', Switzerland: 'de', France: 'fr', Belgium: 'fr', Netherlands: 'nl', Poland: 'pl', Italy: 'it', Spain: 'es', Czechia: 'cs', Romania: 'ro', Sweden: 'sv', Norway: 'no', 'Türkiye': 'tr', Japan: 'ja' };

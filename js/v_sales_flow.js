@@ -1,7 +1,7 @@
 /* Shared inquiry workflow, procurement evidence and order checkpoints. */
 (function(){
   const {esc,$,$$}=UI, B=UI.BUSINESS;
-  const channels={gmail:'Gmail 客户回复',alibaba:'阿里巴巴国际站',exhibition:'展会',social:'社媒',website:'官网',other:'其他'};
+  const channels={gmail:'Gmail 客户回复',alibaba:'阿里国际站',platform:'其他平台',email:'邮件',website:'官网',exhibition:'展会',social:'社媒',other:'其他'};
   const categories={website:'官网 / 产品目录',shipment:'海关 / 提单',customer:'客户确认',registry:'登记 / 行业名录',other:'其他'};
   const matches={match:'产品匹配',mismatch:'产品不匹配',pending:'待核实'};
   const steps={spec:'规格与单据确认',deposit:'定金',production:'排产',inspection:'验货',loading:'装柜',shipping:'出货',balance:'尾款'};
@@ -42,7 +42,7 @@
     hint.textContent=hits.length?`找到 ${hits.length} 个可能是同一公司的档案，请核对后选择关联。`:'没有找到可直接关联的同名或同域名客户。';
     return {hits,signature,hint};
   }
-  function inquiryModal(row){
+  function inquiryModal(row, presetClient){
     const create=!row;
     const canLink=create||!row.client_id;
     const sourceFields=create?`<div class="formgrid">${B.select('channel','询盘来源',options(channels).filter(([k])=>k!=='gmail'),'alibaba')}
@@ -60,7 +60,8 @@
       let checked='';
       const values=()=>create?[val('company'),val('site'),val('email')]:[row.company,row.website,row.email];
       if(canLink)chooseExisting(f,...values());
-      if(create)for(const k of ['company','site','email'])f.elements[k].onchange=()=>chooseExisting(f,...values());
+      if(create&&presetClient&&f.elements.linked)f.elements.linked.value=presetClient;
+      if(create)for(const k of ['company','site','email'])f.elements[k].onchange=()=>{chooseExisting(f,...values());if(presetClient&&!f.elements.linked.value)f.elements.linked.value=presetClient;};
       B.bindForm(f,async()=>{
         if(canLink){
           const {hits,signature,hint}=chooseExisting(f,...values());
@@ -87,7 +88,7 @@
     if(DB.mode==='demo')return demo('询盘待处理箱');
     const current=UI.viewCurrent(), since=new Date(Date.now()-30*86400000).toISOString();
     UI.render(`<div class="pagehead"><h1>询盘待处理箱</h1><button class="primary" id="addInquiry">录入询盘</button></div>
-      <section class="card pad"><p>Gmail 只显示 CRM 已关联的客户真实回复。国际站、展会、社媒和官网询盘可录入原文。</p><p id="inqStats" class="muted">正在读取最近30天统计…</p>
+      <section class="card pad"><p>手工录入阿里国际站、其他平台、邮件、官网、展会或社媒来的询盘，并关联到客户档案。不调用平台接口。Gmail 只显示 CRM 已关联的客户真实回复。</p><p id="inqStats" class="muted">正在读取最近30天统计…</p>
       <div class="actions"><label>状态<select id="inqState"><option value="pending">待处理</option><option value="handled">已处理</option><option value="">全部</option></select></label>
       <label>来源<select id="inqChannel">${UI.opt('','全部','')}${options(channels).map(([k,v])=>UI.opt(k,v,'')).join('')}</select></label></div>
       <div id="inqRows"></div></section>`,'business');
@@ -217,6 +218,7 @@
       });
     });
   }
+  UI.openInquiry=(clientId)=>inquiryModal(null, clientId||null);
   UI.views['inquiry-inbox']={render:inbox};
   UI.views['purchase-evidence']={render:evidence};
   UI.views['order-tracking']={render:orders};

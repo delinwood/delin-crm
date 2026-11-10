@@ -11,7 +11,7 @@
     nameKey(n) { return String(n || '').toLowerCase().replace(/&/g, ' and ').replace(/\b(inc|ltd|llc|corp|corporation|co|company|limited|group|the|gmbh|sa|sas|srl|bv|nv|sp z o o|ltee|ltée|plc|pty)\b/g, ' ').replace(/[^a-z0-9\u4e00-\u9fa5]+/g, ''); },
     diff(before, after, keys) { const d = {}; keys.forEach(k => { const a = JSON.stringify(before[k] ?? ''), b = JSON.stringify(after[k] ?? ''); if (k in after && a !== b) d[k] = [before[k] ?? '', after[k] ?? '']; }); return d; }
   };
-  const TRACK = ['company_name','deal_note','customer_type','country','state','city','address','company_phone','whatsapp','company_email','website','contact_name','contact_title','contact_linkedin','products','apollo_criteria','priority','owner_id','status','next_follow_up','tags','notes','source_note'];
+  const TRACK = ['company_name','deal_note','customer_type','country','state','city','address','company_phone','whatsapp','timezone','reach_channel','company_email','website','contact_name','contact_title','contact_linkedin','products','apollo_criteria','priority','owner_id','status','next_follow_up','tags','notes','source_note'];
 
   // ======================= DEMO =======================
   const KEY = 'fcrm_demo_v2';
@@ -164,7 +164,7 @@
     sb: null, profile: null, mode: 'supabase',
     init() { if (!this.sb) this.sb = window.supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY); return this.sb; },
     t(name) { return this.init().from(name); },
-    clean(d) { d = { ...d }; ['customer_type', 'priority', 'next_follow_up', 'owner_id', 'state', 'whatsapp'].forEach(k => { if (k in d && d[k] === '') d[k] = null; }); delete d.owner; return d; },
+    clean(d) { d = { ...d }; ['customer_type', 'priority', 'next_follow_up', 'owner_id', 'state', 'whatsapp', 'timezone', 'reach_channel'].forEach(k => { if (k in d && d[k] === '') d[k] = null; }); delete d.owner; return d; },
     email(u) { return u.trim().toLowerCase() + '@' + cfg.USERNAME_EMAIL_DOMAIN; },
     chk(r) { if (r.error) throw new Error(r.error.message.replace(/^.*?ERROR:\s*/, '')); return r.data; },
     async login(username, password) { username = username.trim(); let email = username.includes('@') ? username.toLowerCase() : null;

@@ -1,14 +1,15 @@
 /* Public website enrichment. No target credentials, paid fallback or automatic CRM overwrite. */
+import { disclosedContacts } from './discovery-providers.mjs';
 const researchModule = (() => {
   type DB = any;
   type Page = { url: string; title: string; content: string; checked_at: string };
-  type Suggestion = { id: string; field: string; label: string; value: string; source_url: string; checked_at: string; excerpt: string; state: 'pending' };
+  type Suggestion = { id: string; field: string; label: string; value: string; source_url: string; checked_at: string; excerpt: string; state: 'pending'; role?: string; email?: string; phone?: string; whatsapp?: string };
   type Evidence = { topic: string; source_url: string; checked_at: string; excerpt: string; state: 'pending' };
   type SearchResult = { url: string; title: string; snippet: string; checked_at: string; name_matches: string[]; country_mentioned: boolean; candidate_website: string; source_kind: 'search_index'; state: 'pending' };
   type Budget = { end: number };
   const BLOCKED_HOSTS = ['localhost','metadata.google.internal','metadata.google','instance-data','facebook.com','fb.com','fb.me','instagram.com','linkedin.com','lnkd.in','whatsapp.com','wa.me','t.me','tiktok.com','x.com','twitter.com','youtube.com','youtu.be','r.jina.ai','s.jina.ai','bit.ly','tinyurl.com','t.co','goo.gl','ow.ly','is.gd','nip.io','sslip.io','localtest.me','lvh.me','ngrok.io','ngrok-free.app','trycloudflare.com'];
   const INTERNAL_ENDINGS = /\.(?:local|localhost|internal|intranet|lan|home|corp|test|invalid|example|onion|arpa)$/i;
-  const SAFE_FIELDS = new Set(['company_email','company_phone','address','notes','website']);
+  const SAFE_FIELDS = new Set(['company_email','company_phone','address','notes','website','whatsapp','contact_name','contact_title']);
   const EMAIL = /[A-Z0-9.!#$%&'*+\/=?^_`{|}~-]+@[A-Z0-9](?:[A-Z0-9-]*[A-Z0-9])?(?:\.[A-Z0-9](?:[A-Z0-9-]*[A-Z0-9])?)+/gi;
   function capabilities() { return { reader: true, search: Deno.env.get('JINA_FREE_SEARCH_ENABLED') === 'true' && !!Deno.env.get('JINA_SEARCH_KEY')?.trim(), maxPages: 3, maxSearchResults: 5, monthlySearchJobs: 100, dailyPerUser: 20, batchSize: 10, paidFallback: false, searchTokenBudgetEnforced: false }; }
   function checked<T>(r: { data: T; error: any }): T { if (r.error) throw new Error('资料任务数据库操作失败，请稍后重试'); return r.data; }
@@ -121,7 +122,7 @@ const researchModule = (() => {
     const suggestions: Suggestion[] = [], evidence: Evidence[] = [], seen = new Set<string>();
     const add = (field: string, label: string, value: string, page: Page, excerpt: string) => {
       value = value.trim(); const key = field + ':' + value.toLowerCase();
-      if (!SAFE_FIELDS.has(field) || !value || seen.has(key) || suggestions.length >= 24 || suggestions.filter(s => s.field === field).length >= 8) return;
+      if (!SAFE_FIELDS.has(field) || !value || seen.has(key) || suggestions.length >= 32 || suggestions.filter(s => s.field === field).length >= 8) return;
       seen.add(key); suggestions.push({ id: 's' + (suggestions.length + 1), field, label, value: value.slice(0, field === 'notes' ? 1200 : 500), source_url: page.url, checked_at: page.checked_at, excerpt: excerpt.slice(0, 500), state: 'pending' });
     };
     for (const page of pages) {
@@ -143,6 +144,17 @@ const researchModule = (() => {
           ['工程相关描述', /\b(?:contractor|construction|projects?)\b|工程|建筑/i]
         ] as Array<[string, RegExp]>) if (re.test(cleaned) && evidence.filter(e => e.topic === topic).length < 3) evidence.push({ topic, source_url: page.url, checked_at: page.checked_at, excerpt: cleaned.slice(0, 500), state: 'pending' });
       }
+      const disclosed = disclosedContacts(page.content);
+      for (const person of disclosed.people) {
+        const key = 'person:' + person.name.toLowerCase() + ':' + person.email;
+        if (seen.has(key) || suggestions.length >= 32) continue;
+        seen.add(key);
+        suggestions.push({ id: 's' + (suggestions.length + 1), field: 'person', label: '公开联系人', value: person.name, role: person.role, email: person.email, phone: person.phone, whatsapp: person.whatsapp, source_url: page.url, checked_at: page.checked_at, excerpt: person.excerpt, state: 'pending' });
+        add('contact_name', '公开联系人姓名', person.name, page, person.excerpt);
+        if (person.role) add('contact_title', '公开职位', person.role, page, person.excerpt);
+      }
+      for (const item of disclosed.whatsapps) add('whatsapp', '公开 WhatsApp', item.value, page, item.excerpt);
+      for (const item of disclosed.titles) add('contact_title', '公开职位', item.value, page, item.excerpt);
     }
     return { suggestions, evidence };
   }
