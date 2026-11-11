@@ -123,7 +123,7 @@
   function importPage(){
     const targets=importTargets(), initial=UI.isSocialOperator?'social':'google';
     UI.render(`<div class="pagehead"><h1>批量导入客户</h1></div><section class="card pad">
-      <p>上传 Excel 或 CSV，核对字段和重复项，再选择要进入的公海。导入后客户为未分配。</p>
+      <p>上传 Excel 或 CSV，核对字段和重复项，再选择要进入的公海。导入后客户为未分配。资料不完整也可以进入；与已有客户重复的行不会写入。</p>
       <p>可选目标：${targets.map(([,label])=>esc(label)).join('、')}</p>
       <input type="file" id="impf" aria-label="客户表格" accept=".csv,.xlsx,.xls"><div id="impbox"></div>
       </section>`,'client-import');
@@ -199,7 +199,7 @@
       ...[['state','州/地区'],['city','城市'],['address','地址'],['contact_title','职位'],['contact_linkedin','LinkedIn'],
         ['whatsapp','WhatsApp'],['customer_type','客户类型'],['apollo_criteria','Apollo 搜索条件'],['priority','优先级']]
         .filter(([key]) => c[key]).map(([key, label]) => label + '：' + c[key])].filter(Boolean);
-    return {company_name:c.company_name, country:c.country || '', contact_name:c.contact_name || '',
+    return {company_name:c.company_name, country:c.country || '', customer_type:c.customer_type || '', contact_name:c.contact_name || '',
       phone:c.company_phone || c.whatsapp || '', email:c.company_email || '', website:c.website || '',
       products:rawProducts, tags:c.tags.join(', '), platform:c.platform || '', social_url:c.social_url || '',
       notes:notes.join('\n'), next_date:c.next_follow_up || ''};
@@ -231,12 +231,25 @@
     };
     if ($('#imo')) $('#imo').onchange = e => { IMP.owner = e.target.value; mapping(); }; $('#imsk').onchange = e => { IMP.skip = e.target.checked; mapping(); };
     $('#imc').onclick = () => { IMP = null; $('#impbox').innerHTML = ''; $('#impf').value = ''; };
+    const gateIncoming = (list, target) => {
+      if (!window.PoolAdmission) return;
+      const seen = (UI.CLIENTS || []).slice(), errors = [];
+      list.forEach(r => {
+        if (!target && r.c.owner_id) return;
+        const payload = channelPool(target) ? { company_name: r.c.company_name, country: r.c.country, customer_type: r.c.customer_type, products: r.rawProducts || r.c.products, website: r.c.website, company_email: r.c.company_email, company_phone: r.c.company_phone, whatsapp: r.c.whatsapp, contact_linkedin: r.c.contact_linkedin, inquiry_url: r.c.social_url } : r.c;
+        const gate = PoolAdmission.evaluate(payload, seen);
+        if (!gate.ok) errors.push('第 ' + r.row + ' 行 ' + r.c.company_name + '：' + gate.message);
+        else seen.push(payload);
+      });
+      if (errors.length) throw new Error(errors.slice(0, 8).join('\n'));
+    };
     $('#imgo').onclick = async () => {
       const draft = IMP, target = draft.target, list = rows.filter(r => !(draft.skip && r.dup));
       const controls = [...$('#impbox').querySelectorAll('select,input,button'), $('#impf')];
       const disabled = controls.map(el => el.disabled);
       controls.forEach(el => { el.disabled = true; });
       try {
+        gateIncoming(list, target);
         let n;
         if (channelPool(target)) {
           if (DB.mode === 'demo') throw Error('此公海请在正式系统导入');

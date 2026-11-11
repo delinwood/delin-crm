@@ -16,12 +16,15 @@
   };
   function finish(item,render){
     UI.modal(`<h2>记录待办处理结果</h2><p>${esc(item.title)} · ${esc(item.client.company_name)}</p>
-    <form><label>处理结果<textarea name="outcome" rows="4" maxlength="2000" required></textarea></label>
+    <form><label>获客结果（可选，四选一）<select name="acquisition_outcome"><option value="">暂不记录</option>${(window.PoolAdmission?PoolAdmission.OUTCOMES:[]).map(([k,l])=>`<option value="${esc(k)}">${esc(l)}</option>`).join('')}</select></label>
+    <label>处理结果<textarea name="outcome" rows="4" maxlength="2000" required></textarea></label>
     <label>下一步日期（可选）<input type="date" name="next" min="${today()}"></label>
     <p class="muted small">如果实际联系了客户，请在客户档案登记跟进，更新公海回收计时。</p>${B.footer}</form>`,(modal,close)=>{
       B.bindForm(modal.querySelector('form'),async form=>{
         const outcome=form.elements.outcome.value.trim();
         if(!outcome)throw Error('请填写实际处理结果');
+        const admission=form.elements.acquisition_outcome.value;
+        if(admission)await DB.setAcquisitionOutcome(item.client.id,admission);
         await rpc('crm_finish_work_item',{p_client:item.client.id,p_key:item.key,p_outcome:outcome,p_next:form.elements.next.value||null});
         close();UI.toast('处理结果已记录');await render();
       });
