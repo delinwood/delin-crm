@@ -1,0 +1,31 @@
+{
+  "id": "/delin-crm/",
+  "name": "德林 CRM",
+  "short_name": "德林 CRM",
+  "start_url": "/delin-crm/",
+  "scope": "/delin-crm/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#14284b",
+  "lang": "zh-CN",
+  "icons": [
+    {
+      "src": "/delin-crm/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/delin-crm/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/delin-crm/icon-512-maskable.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}
