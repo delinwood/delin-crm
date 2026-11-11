@@ -171,7 +171,7 @@
     $('#cnt').innerHTML = `共 <b>${all.length}</b> 家客户 <small>${all.length} clients</small>`;
     $('#rows').innerHTML = rows.map(c => { const lt = UI.localTime(c); return `<tr data-id="${esc(c.id)}" class="${SEL.has(c.id) ? 'sel' : ''}">
       <td class="ck" data-l=""><input type="checkbox" data-sel="${esc(c.id)}" ${SEL.has(c.id) ? 'checked' : ''}></td>
-      <td data-l="公司"><a class="cname" href="#/client/${esc(c.id)}">${esc(c.company_name)}</a>${c.website ? `<a class="sub" href="${esc(UI.url(c.website))}" target="_blank" rel="noopener">${esc(U.domain(c.website))}</a>` : ''}<div>${UI.tags(c.tags)}</div>${UI.outboundBar(c)}</td>
+      <td data-l="公司"><a class="cname" href="#/client/${esc(c.id)}">${esc(c.company_name)}</a>${c.website ? `<a class="sub" href="${esc(UI.url(c.website))}" target="_blank" rel="noopener">${esc(U.domain(c.website))}</a>` : ''}${(c.tags || []).length ? `<div class="tags">${UI.tags(c.tags)}</div>` : ''}${UI.outboundBar(c)}</td>
       <td data-l="类型">${esc(C.typeCN(c.customer_type))}</td>
       <td data-l="地区">${esc([c.city, c.state, c.country].filter(Boolean).join(', '))}</td>
       <td data-l="产品"><div class="chips">${UI.chips(c.products)}</div></td>
@@ -221,7 +221,7 @@
     UI.render(`<div class="crumbs"><a href="#/list">← 客户列表</a><span>${i >= 0 ? `${i + 1}/${ids.length}` : ''} ${prev ? `<a href="#/client/${esc(prev)}">‹ 上一个</a>` : ''} ${next ? `<a href="#/client/${esc(next)}">下一个 ›</a>` : ''}</span></div>
       <section class="card hero"><div class="hl"><h1>${esc(c.company_name)}</h1>
         <div class="meta">${esc(C.typeName(c.customer_type))} · ${esc([c.city, c.state, c.country].filter(Boolean).join(', '))} ${UI.ltBadge(c)}</div>
-        <div class="badges">${UI.prBadge(c.priority)} ${UI.stBadge(c.status)} ${c.next_follow_up ? '下次跟进 ' + UI.dueBadge(c.next_follow_up) : '<span class="due none">未设下次跟进</span>'} <span class="owner">负责人 <b>${esc(UI.userName(c.owner_id))}</b></span> ${UI.tags(c.tags)}</div></div>
+        <div class="badges">${UI.prBadge(c.priority)} ${UI.stBadge(c.status)} ${c.next_follow_up ? '下次跟进 ' + UI.dueBadge(c.next_follow_up) : '<span class="due none">未设下次跟进</span>'} <span class="owner">负责人 <b>${esc(UI.userName(c.owner_id))}</b></span> ${(c.tags || []).length ? `<span class="tags">${UI.tags(c.tags)}</span>` : ''}</div></div>
         <div class="quick">${UI.outboundBar(c)}<a class="btn primary" href="#/templates/${esc(c.id)}">✍️ 写开发信</a></div></section>
       ${usWarn ? '<div class="warn">⚠️ 美国只开发墙板、格栅、木饰面及吸音板；不开发任何地板（含SPC）</div>' : ''}
       ${lt && !lt.work ? `<div class="info">🌙 客户当地现在是 ${esc(lt.text)}，非工作时间——建议邮件或定时发送，电话/WhatsApp 等对方上班再联系。</div>` : ''}
@@ -312,8 +312,9 @@
     const isNew = !c, prior = c || {}; c = c || { status: '未联系', priority: 'C', country: '', products: [], tags: [], ...(prefill || {}) }; const admin = UI.ME.role === 'admin';
     const inp = (k, label, type, extra) => `<label>${label}<input name="${k}" type="${type || 'text'}" value="${esc(c[k] || '')}" ${extra || ''}></label>`;
     const lockNote = !admin && !isNew ? '<p class="muted small">🔒 初始资料（名称/国家/网站/电话/邮箱/地址）可修改但不可清空；负责人由管理员分配。</p>' : '';
+    const pasteBox = `<div class="paste-box"><label>粘贴客户资料<textarea id="pasteClient" rows="6" placeholder="把邮件、WhatsApp、网页或 LinkedIn 上的整段资料贴在这里。公司、国家、城市、地址、电话、WhatsApp、邮箱、网站、联系人会填入下面的栏目。请核对后再点保存，不会自动保存。"></textarea></label><div class="actions"><button type="button" class="ghost" id="pasteFill">识别并填入</button></div><p id="pasteSummary" class="muted small" role="status"></p></div>`;
     UI.render(`<div class="crumbs"><a href="${isNew ? '#/list' : '#/client/' + esc(c.id)}">← 返回 Back</a></div>
-      <form class="card pad form" id="cf"><h2>${isNew ? '新建客户 New client' : '编辑客户 Edit client'}</h2>${lockNote}<div id="dupbox"></div><div id="poolGate" hidden></div>
+      <form class="card pad form" id="cf"><h2>${isNew ? '新建客户 New client' : '编辑客户 Edit client'}</h2>${lockNote}${pasteBox}<div id="dupbox"></div><div id="poolGate" hidden></div>
       <h3>公司信息 Company</h3><div class="g3">${inp('company_name', '公司名称 Company name *', 'text', 'required')}
         <label>客户类型 Type<select name="customer_type">${C.TYPES.map(t => opt(t[0], t[1] + ' ' + t[2], c.customer_type || 'importer')).join('')}</select></label>
         <label>国家 Country<input name="country" list="countries" value="${esc(c.country || '')}"></label>${inp('state', '州/省 State/Region (缩写如 CA, ON)')}${inp('city', '城市 City')}${inp('address', '地址 Address')}
@@ -364,6 +365,91 @@
     const dupCheck = async () => { if (!isNew) return []; const d = await DB.checkDuplicate({ name: f.company_name.value, website: f.website.value, phone: f.company_phone.value });
       $('#dupbox').innerHTML = d.length ? `<div class="warn">⚠️ 可能重复 Possible duplicate：${d.map(x => `<div>「${esc(x.company_name || '（他人客户 another rep’s client）')}」 匹配 ${esc(x.match)} · 归属 <b>${esc(x.owner_name)}</b> ${x.client_id ? `<a href="#/client/${esc(x.client_id)}">查看</a>` : ''}</div>`).join('')}</div>` : ''; return d; };
     if (isNew) ['company_name', 'website', 'company_phone'].forEach(k => f[k].addEventListener('change', dupCheck));
+    const pasteNames = { company_name: '公司名称', customer_type: '客户类型', country: '国家', state: '州/省', city: '城市', address: '地址', company_phone: '电话', whatsapp: 'WhatsApp', company_email: '邮箱', website: '网站', contact_name: '联系人', contact_title: '职位', contact_linkedin: 'LinkedIn', products: '产品', notes: '备注' };
+    const pasteDirty = new Set();
+    const pasteInitial = {};
+    const pasteAuto = {};
+    for (const key of Object.keys(pasteNames)) {
+      if (key === 'products') pasteInitial.products = [...f.querySelectorAll('[name=products]:checked')].map(box => box.value).sort().join(',');
+      else if (f.elements[key]) pasteInitial[key] = (f.elements[key].value || '').trim();
+    }
+    const productKey = () => [...f.querySelectorAll('[name=products]:checked')].map(box => box.value).sort().join(',');
+    // A filled value is kept when the user typed it, or it was already on the record. Clearing the field, or confirming a new paste, lets recognition replace it.
+    const occupied = (key, current) => {
+      if (!current) return false;
+      if (pasteAuto[key] && current === pasteAuto[key]) return false;
+      if (isNew && key === 'customer_type' && current === 'importer' && !pasteDirty.has(key)) return false;
+      return pasteDirty.has(key) || current === pasteInitial[key];
+    };
+    f.addEventListener('input', event => { if (event.target && event.target.name && event.target.id !== 'pasteClient') pasteDirty.add(event.target.name); });
+    f.addEventListener('change', event => { if (event.target && event.target.name && event.target.id !== 'pasteClient') pasteDirty.add(event.target.name); });
+    const applyPaste = () => {
+      const text = $('#pasteClient').value.trim();
+      const summary = $('#pasteSummary');
+      if (!text) { summary.textContent = '请先粘贴客户资料。'; return; }
+      if (!window.PasteClient) { summary.textContent = '识别组件没有载入，请刷新页面后再试。'; return; }
+      const parsed = PasteClient.parse(text);
+      const filled = [], skipped = [];
+      const conflicts = Object.keys(parsed.fields).filter(key => {
+        const next = String(parsed.fields[key] || '').trim();
+        const current = (f.elements[key] && f.elements[key].value || '').trim();
+        return next && current !== next && occupied(key, current);
+      });
+      const productNow = productKey();
+      const productList = productNow ? productNow.split(',') : [];
+      const productOccupied = productNow && productNow !== (pasteAuto.products || '') && !(isNew && !pasteInitial.products && !pasteDirty.has('products'));
+      const productConflict = parsed.products.length && productOccupied && productList.some(key => !parsed.products.includes(key));
+      let overwrite = false;
+      if (conflicts.length || productConflict) {
+        const names = [...conflicts.map(key => pasteNames[key]), productConflict ? '产品' : ''].filter(Boolean).join('、');
+        overwrite = confirm('这些栏已经有内容：' + names + '。要用这次识别结果覆盖吗？\n取消则只填空白栏。清空栏位后可以重新识别。');
+      }
+      for (const [key, value] of Object.entries(parsed.fields)) {
+        if (key === 'timezone') continue;
+        const next = String(value || '').trim();
+        if (!next || !f.elements[key]) continue;
+        const current = (f.elements[key].value || '').trim();
+        if (current === next) { pasteAuto[key] = next; filled.push(pasteNames[key]); continue; }
+        if (occupied(key, current) && !overwrite) { skipped.push(pasteNames[key]); continue; }
+        const allowed = key !== 'customer_type' || [...f.elements[key].options].some(option => option.value === next);
+        if (!allowed) continue;
+        f.elements[key].value = next;
+        pasteAuto[key] = next;
+        filled.push(pasteNames[key]);
+      }
+      if (f.elements.timezone && !pasteDirty.has('timezone') && isNew && !pasteInitial.timezone) f.elements.timezone.value = '';
+      if (parsed.products.length) {
+        const now = productKey();
+        const replace = overwrite || !now || now === (pasteAuto.products || '');
+        f.querySelectorAll('[name=products]').forEach(box => {
+          if (replace) box.checked = parsed.products.includes(box.value);
+          else if (parsed.products.includes(box.value)) box.checked = true;
+        });
+        if (replace) pasteAuto.products = productKey();
+        if (replace || productKey() !== now) filled.push('产品');
+        if (productConflict && !overwrite) skipped.push('产品');
+      }
+      if (parsed.notes) {
+        const notes = f.elements.notes;
+        const current = notes.value.trim();
+        const previous = pasteAuto.notes || '';
+        if (!current) notes.value = parsed.notes;
+        else if (previous && current === previous) notes.value = parsed.notes;
+        else if (previous && current.endsWith('\n' + previous)) notes.value = current.slice(0, -(previous.length + 1)) + '\n' + parsed.notes;
+        else if (!current.includes(parsed.notes)) notes.value = current + '\n' + parsed.notes;
+        else { /* The same leftover is already in the notes. */ }
+        if (notes.value.trim() !== current || !current) { pasteAuto.notes = parsed.notes; filled.push('备注'); }
+      }
+      chk();
+      dupCheck();
+      const parts = [];
+      if (filled.length) parts.push('识别到：' + [...new Set(filled)].join('、'));
+      if (skipped.length) parts.push('未覆盖已填写的：' + [...new Set(skipped)].join('、'));
+      if (!filled.length && !skipped.length) parts.push('没有识别到可填入的栏目');
+      summary.textContent = parts.join('。') + '。请核对后再保存。';
+    };
+    $('#pasteFill').onclick = applyPaste;
+    $('#pasteClient').addEventListener('paste', () => setTimeout(applyPaste, 0));
     f.onsubmit = async e => { e.preventDefault(); const d = {};
       ['company_name', 'customer_type', 'country', 'state', 'city', 'address', 'company_phone', 'whatsapp', 'company_email', 'website', 'contact_name', 'contact_title', 'contact_linkedin', 'priority', 'status', 'apollo_criteria', 'notes', 'source_note'].forEach(k => d[k] = f[k].value.trim());
       d.timezone = f.timezone.value.trim() || null; d.reach_channel = f.reach_channel.value || null;
