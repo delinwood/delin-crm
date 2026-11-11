@@ -195,7 +195,7 @@ table.mini td:first-child{white-space:nowrap}
 .reminder-hero h1,.ai-hero h1{margin:8px 0;font-size:30px}
 .reminder-row{display:flex;gap:20px;align-items:center;justify-content:space-between;border-top:1px solid #e6edf5;padding:18px 4px}
 .reminder-row h3{margin:0 0 8px}.reminder-row p{margin:5px 0}.reminder-row.is-due{border-left:3px solid #e9a93c;padding-left:14px;background:#fffaf0}
-.reminder-popups{position:fixed;z-index:2000;right:22px;bottom:22px;width:min(440px,calc(100vw - 32px));max-height:78vh;overflow:auto;display:grid;gap:12px}
+.reminder-popups{position:fixed;z-index:2000;right:22px;bottom:22px;width:min(440px,calc(100% - 32px));max-height:78vh;overflow:auto;display:grid;gap:12px}
 .reminder-popup{padding:22px;background:#fff;border:2px solid #e9a93c;border-radius:16px;box-shadow:0 12px 45px #182d4940}
 .reminder-popup h2{font-size:20px;margin:10px 0}.reminder-popup pre{white-space:pre-wrap;font-family:inherit;max-height:160px;overflow:auto}.reminder-popup a{font-size:12px}
 .ai-hero{display:flex;justify-content:space-between;gap:24px;align-items:center}.ai-usage{display:grid;gap:10px;min-width:180px;font-size:14px}
@@ -252,3 +252,53 @@ tr.mkt-sanction td:first-child{box-shadow:inset 3px 0 0 #c2392b}
 .mkt-sources{padding-left:18px;word-break:break-all}
 .mkt-sources a{font-size:12px}
 @media(max-width:760px){.mkt-boards{flex-wrap:wrap}.mkt-tab{white-space:nowrap}.mkt-search-label{width:100%}.mkt-search-label input{flex:1;width:auto}.mkt td.num{white-space:normal}}
+
+/* Phone width. Keep desktop rules above; only tighten the layout that was wider than an iPhone. */
+html{-webkit-text-size-adjust:100%;text-size-adjust:100%}
+.brand-wordmark{gap:0;min-width:0;text-decoration:none}
+.brand-wordmark:hover{text-decoration:none}
+.wordmark{display:block;height:auto;width:auto;max-height:40px;max-width:min(190px,100%);object-fit:contain;background:transparent;border-radius:0;padding:0}
+.app-sidebar>.brand-wordmark{align-items:center}
+.tags{display:flex;flex-wrap:wrap;gap:4px;min-width:0;max-width:100%}
+.tag{max-width:100%}
+.paste-box{margin:4px 0 16px;padding:12px;background:#f6f8fb;border:1px dashed #cfd8e3;border-radius:10px}
+.paste-box textarea{min-height:132px}
+.cname,.sub,.meta,.pagehead h1,.sec-h h2,.todo li{overflow-wrap:anywhere}
+.outbound,.qa,.quick,.actions,.chips,.badges,.sec-h,.pagehead{min-width:0;max-width:100%}
+.sec-h{flex-wrap:wrap;gap:6px 12px}
+pre,.tblwrap,.card{max-width:100%}
+@media (max-width:760px){
+  html,body{max-width:100%;overflow-x:hidden}
+  .mobile-top{height:auto;min-height:calc(52px + env(safe-area-inset-top));padding:env(safe-area-inset-top) max(10px, env(safe-area-inset-right)) 0 max(10px, env(safe-area-inset-left));align-items:center}
+  .mobile-top .wordmark{max-height:28px;max-width:min(132px,36vw)}
+  .mobile-top .brand-wordmark{flex:1 1 auto;min-width:0}
+  .mobile-user{max-width:5.2em}
+  .app-content main{padding:13px max(12px, env(safe-area-inset-right)) calc(82px + env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left))}
+  .tabbar{padding-left:env(safe-area-inset-left);padding-right:env(safe-area-inset-right)}
+  .tabbar a{min-width:0;padding:4px 2px;text-align:center}
+  input,select,textarea{font-size:16px}
+  .pagehead{align-items:stretch}
+  .pagehead h1{flex:1 1 100%}
+  .pagehead h1 small{display:block;margin:2px 0 0}
+  .kpis{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .kpis.k5{grid-template-columns:repeat(3,minmax(0,1fr))}
+  .kpi{min-width:0}
+  .kpi span{overflow-wrap:anywhere}
+  .filters,.g2,.g3,.g4,.grid2,.grid3,.logf .row,.row3,.mapgrid{grid-template-columns:minmax(0,1fr)}
+  .filters:has(#ftog){grid-template-columns:minmax(0,1fr) auto}
+  .filters.open:has(#ftog){grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
+  .filters #fq,.filters.open #fq{min-width:0;max-width:100%}
+  .prods{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .bar>div{min-width:0!important;max-width:100%}
+  .bar [aria-label="优先级解释"]>div{grid-template-columns:minmax(0,1fr)!important}
+  .hero{flex-direction:column;align-items:stretch}
+  .hero .hl,.hero .quick,.hero h1{min-width:0;max-width:100%}
+  .qa>.outbound,.quick>.outbound{flex:1 1 100%;width:100%;min-width:0}
+  .outbound{width:100%}
+  .tbl td{grid-template-columns:4.8em minmax(0,1fr);align-items:start}
+  .tbl td::before{grid-column:1;grid-row:1;min-width:0;overflow-wrap:anywhere}
+  .tbl td>*{grid-column:2;justify-self:stretch;min-width:0;max-width:100%}
+  .tbl td .cname,.tbl td .sub{display:block;grid-column:2}
+  .tbl td .tags,.tbl td .outbound,.tbl td .chips{width:100%}
+  .actions .btn,.outbound .btn,.qa .btn,.quick .btn{max-width:100%}
+}
