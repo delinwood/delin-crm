@@ -1,0 +1,36 @@
+{
+  "manifest_version": 3,
+  "name": "Delin CRM · 保存 LinkedIn 联系人",
+  "version": "1.0.0",
+  "description": "把当前 LinkedIn 主页上已经显示的联系人存入 Delin CRM。不抓取搜索列表，不解锁隐藏联系方式。",
+  "permissions": ["storage", "tabs"],
+  "host_permissions": [
+    "https://bccatmfiaawocpgagzzf.supabase.co/*",
+    "https://delinwood.github.io/*",
+    "https://www.linkedin.com/*",
+    "https://*.linkedin.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://www.linkedin.com/in/*",
+        "https://www.linkedin.com/company/*",
+        "https://*.linkedin.com/in/*",
+        "https://*.linkedin.com/company/*"
+      ],
+      "js": ["lib/save.js", "linkedin.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://delinwood.github.io/delin-crm/*"],
+      "js": ["crm-bridge.js"],
+      "run_at": "document_start"
+    }
+  ],
+  "action": {
+    "default_title": "Delin CRM"
+  }
+}

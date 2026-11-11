@@ -47,6 +47,10 @@
     out.linkedin.push([`LinkedIn 人: 采购经理 flooring ${country}`, `https://www.linkedin.com/search/results/people/?keywords=${enc('purchasing manager flooring ' + country)}`]);
     out.linkedin.push([`LinkedIn 人: buyer / category manager`, `https://www.linkedin.com/search/results/people/?keywords=${enc('buyer ' + en[0] + ' ' + country)}`]);
     out.linkedin.push([`Google 搜 LinkedIn 采购（免登录）`, G(`site:linkedin.com/in ("purchasing manager" OR buyer OR "procurement") (flooring OR "${en[0]}") ${country}`)]);
+    out.other.push([`OpenCorporates: ${en[0]} ${country}`, `https://opencorporates.com/companies?q=${enc(en[0] + ' ' + country)}`]);
+    if (country === 'United Kingdom') out.other.push([`英国 Companies House: ${en[0]}`, `https://find-and-update.company-information.service.gov.uk/search?q=${enc(en[0])}`]);
+    if (country === 'United Arab Emirates') out.other.push(['阿联酋 CBLS 经济登记（需在官网查询）', 'https://cbls.economy.ae/']);
+    if (country === 'Saudi Arabia') out.other.push(['沙特商业登记（需在官网填写公司名或 CR）', 'https://mc.gov.sa/en/pages/default.aspx']);
     out.other.push([`Apollo 公司搜索 (需登录; 免费版额度有限)`, `https://app.apollo.io/#/companies?qOrganizationKeywordTags[]=${enc(en[0])}&organizationLocations[]=${enc(country)}`]);
     out.other.push([`Apollo 人员: Purchasing / Buyer`, `https://app.apollo.io/#/people?personTitles[]=purchasing%20manager&personTitles[]=buyer&qOrganizationKeywordTags[]=${enc(en[0])}&organizationLocations[]=${enc(country)}`]);
     if (country === 'USA') { out.other.unshift([`ImportYeti 海关提单: ${en[0]}`, `https://www.importyeti.com/search?q=${enc(en[0])}`]); out.other.unshift([`ImportYeti: "vinyl flooring" (HS 3918)`, `https://www.importyeti.com/search?q=${enc('vinyl flooring')}`]); }
@@ -61,7 +65,7 @@
     const admin = UI.ME.role === 'admin', L = links(P.country, P.group), m = (window.MARKETS || []).find(x => x.country === P.country);
     const block = (title, arr) => `<div class="lgroup"><h3>${title}</h3>${arr.map(([t, u]) => `<a class="lbtn" href="${esc(u)}" target="_blank" rel="noopener">${esc(t)} ↗</a>`).join('')}</div>`;
     UI.render(`<div class="pagehead"><h1>找客户 <small>Prospecting</small></h1><div class="actions">${admin ? '<a class="btn ghost" href="#/pool">🌊 公海 Lead pool</a>' : ''}<a class="btn ghost" href="#/markets">🌍 目标市场</a></div></div>
-      <section class="card pad"><h2>客户核实工具与免费额度</h2><p>查官网、域名、邮箱、采购负责人、地址、海关提单和企业信用。每个工具说明适用场景、额度和官网用法。</p><p class="muted small">公司名核实和海关核验都在客户核实工具里：搜索、地图、LinkedIn、企业登记会带上公司名。外链在新标签页打开，不嵌入、不调用接口。</p><a class="btn primary" href="#/lookup-tools">打开客户核实工具</a></section>
+      <section class="card pad"><h2>客户核实工具与免费额度</h2><p>查官网、域名、邮箱、采购负责人、地址、海关提单和企业信用。每个工具说明适用场景、额度和官网用法。</p><p class="muted small">公司名核实和海关核验都在客户核实工具里：搜索、地图、LinkedIn 公司和找人、企业登记会带上公司名。外链在新标签页打开，不嵌入、不调用接口。</p><a class="btn primary" href="#/lookup-tools">打开客户核实工具</a><p class="muted small">在 LinkedIn 个人主页点一下存进 CRM：到客户核实工具查看如何加载未打包的浏览器扩展。扩展不抓取搜索列表，也不解锁隐藏联系方式。</p></section>
       <section class="card pad"><h2>自动获客</h2><p>选择国家、城市和产品，让服务器搜索公开公司网站、读取产品及B端业务证据、整理联系方式。结果先进入候选名单，核实并查重后再导入客户；不会自动发送邮件。</p><a class="btn primary" href="#/discovery">进入自动获客工作台 →</a></section>
       <div class="grid2 wide-left"><section class="card pad">
         <h2>① 搜索启动器 <small>Search launcher — 自动生成当地语言关键词</small></h2>

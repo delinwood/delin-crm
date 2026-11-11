@@ -17,7 +17,7 @@
   ];
   const accountTools = [
     { name: 'Apollo · 找采购负责人', mode: '需账号', use: '按公司、职位找采购经理、品类经理和业务联系人。', quota: '查找和解锁资料的额度以登录账号为准。部分免费接口功能要求公司工作邮箱。按钮只打开官网，CRM 不代查。', links: [
-      { label: '打开 Apollo', href: 'https://app.apollo.io/' },
+      { id: 'apollo', label: '按公司找采购负责人', href: 'https://app.apollo.io/' },
       { label: '官方说明', href: 'https://docs.apollo.io/docs/developer-faqs' }
     ]},
     { name: 'Volza · 采购记录', mode: '需账号', use: '按公司核对采购产品、日期和供应商。各市场覆盖范围有差异。', quota: '可查范围以账号或套餐为准。CRM 未启用付费接口。', links: [
@@ -51,6 +51,7 @@
     { id: 'google', name: 'Google 搜索', note: '按公司名搜索公开网页', home: 'https://www.google.com/', search: q => 'https://www.google.com/search?q=' + encodeURIComponent(q) },
     { id: 'maps', name: 'Google 地图', note: '按公司名找门店、办公室或仓库', home: mapsHome, search: mapsSearch },
     { id: 'linkedin', name: 'LinkedIn 公司', note: '按公司名搜索公司页', home: 'https://www.linkedin.com/', search: q => 'https://www.linkedin.com/search/results/companies/?keywords=' + encodeURIComponent(q) },
+    { id: 'linkedin-people', name: 'LinkedIn 找人', note: '按人名和公司搜索个人，只打开搜索页', home: 'https://www.linkedin.com/search/results/people/', search: q => 'https://www.linkedin.com/search/results/people/?keywords=' + encodeURIComponent(q) },
     { id: 'opencorporates', name: 'OpenCorporates', note: '全球企业登记检索', home: 'https://opencorporates.com/', search: q => 'https://opencorporates.com/companies?q=' + encodeURIComponent(q) },
     { id: 'companies-house', name: '英国 Companies House', note: '英国公司注册处，按名称搜索', home: 'https://find-and-update.company-information.service.gov.uk/', search: q => 'https://find-and-update.company-information.service.gov.uk/search?q=' + encodeURIComponent(q) }
   ];
@@ -75,9 +76,15 @@
   };
   UI.verifyLinks = (company, options = {}) => {
     const q = companyQuery(company);
+    const person = companyQuery(options.person);
+    const people = [person, q].filter(Boolean).join(' ').trim();
     const domain = websiteDomain(options.website);
     const hunter = domain ? stackLinks([{ id: 'hunter', name: 'Hunter 邮箱', note: '按域名查找公开邮箱，不调用接口' }], () => UI.hunterLink(domain), 'data-verify', true) : '';
-    return `${stackLinks(verifyCompanySites, site => (q && site.search ? site.search(q) : site.home), 'data-verify', true)}${hunter}${countryHint(options.country)}<h3>中东登记入口</h3><p class="muted small">没有公开的公司名搜索参数，按钮只打开官网。请在官方页面填写公司名或商业登记号 CR。</p>${stackLinks(mideastSites, site => site.home, 'data-verify', true)}`;
+    const hrefFor = site => {
+      if (site.id === 'linkedin-people') return people && site.search ? site.search(people) : site.home;
+      return q && site.search ? site.search(q) : site.home;
+    };
+    return `${stackLinks(verifyCompanySites, hrefFor, 'data-verify', true)}${hunter}${countryHint(options.country)}<h3>中东登记入口</h3><p class="muted small">没有公开的公司名搜索参数，按钮只打开官网。请在官方页面填写公司名或商业登记号 CR。</p>${stackLinks(mideastSites, site => site.home, 'data-verify', true)}`;
   };
   const limits = {
     discovery: '自动获客按 Tavily Free → Firecrawl Free → SerpAPI Free → Brave Search 使用免费额度。一个来源用完就换下一个，不会自动付费。地板、墙板关键词和进口、分销、批发、工程采购筛选保持不变。',
@@ -185,6 +192,15 @@
   }
   function render() {
     UI.render(`<div class="pagehead"><h1>客户核实工具</h1><a class="btn ghost" href="#/prospect">返回找客户</a></div>
+      <section class="card pad" id="linkedinSave"><h2>LinkedIn 存入 CRM</h2>
+      <p>在 LinkedIn 个人主页或公司主页点「存入 CRM」，把这一页上已经显示的姓名、职位、公司、地点和主页链接存进 Delin。电话、邮箱、WhatsApp 只有你自己填写才会保存。</p>
+      <p><b>不会做的事：</b>不在后台抓取 LinkedIn，不采集搜索结果，不解锁隐藏邮箱或电话，不自动加好友，不自动发消息，不调用付费联系人库。</p>
+      <p><b>怎么加载（不要上架到 Chrome 应用商店）：</b></p>
+      <ol><li>克隆或下载 GitHub 仓库 <a href="https://github.com/delinwood/delin-crm" target="_blank" rel="noopener noreferrer">delinwood/delin-crm</a>。</li>
+      <li>用 Chrome 打开 chrome://extensions ，打开右上角「开发者模式」。</li>
+      <li>点「加载已解压的扩展程序」，选择仓库里的 extension 文件夹。</li>
+      <li>登录和 CRM 是同一个账号。这个浏览器里如果已经打开并登录了 CRM，在扩展里点「使用已打开的 CRM 登录」；也可以直接输入用户名和密码。扩展只用公开的 anon key，没有 service role。</li></ol>
+      <p class="muted small">业务员新建的客户进入自己的客户。只有管理员可以新建到公海，和现有导入规则一样。查重对照公司名、网站、电话、LinkedIn 链接，以及你填写的邮箱。其他人客户里的邮箱和 LinkedIn，要等老板审核并执行 supabase/migrations 里的新 SQL 之后才查得到；在那之前，扩展会提示，并仍然对照你能看到的客户和全库的公司名、网站、电话。</p></section>
       <section class="card pad"><h2>先选你要核实的内容</h2><p>找新公司用自动获客；已经有公司名称或网址，用官网补资料。域名、邮箱、地址、采购和信用分开核对。</p>
       <p>CRM 额度用完后，可以直接打开外部工具，使用你已有权限的免费功能。同一个账号的网页版和接口可能共用额度，具体余额以官网为准。</p>
       <div class="actions"><a class="btn primary" href="#/discovery">按产品找新客户</a><a class="btn ghost" href="#/research">补充已有客户资料</a></div></section>
@@ -194,9 +210,11 @@
       <div id="customsLinks">${UI.customsLinks('')}</div>
       <p class="muted small">有公司名时，ImportYeti 按公司名搜索，PortExaminer 按进口商名称搜索。CNUData 始终打开首页，请在站内选择沙特或阿联酋后查询。同一公司名也会更新下方的公司核实和 Google 地图。提单线索需人工核对，不能代替客户确认。查完后可把进口证据摘要、证据 URL、核实日记在客户的来源/核实说明里。</p></section>
       <section class="card pad" id="companyVerify"><h2>公司核实</h2>
-      <p>使用上面的公司名称。有名称时，搜索链接会带上公司名；留空则打开各站首页。只在新标签页打开，不嵌入页面，不调用接口。</p>
+      <p>使用上面的公司名称。有名称时，搜索链接会带上公司名；填写联系人后，LinkedIn 找人会带上人名和公司。留空则打开各站首页。只在新标签页打开，不嵌入页面，不调用接口。</p>
+      <label>联系人姓名（可选，只用于 LinkedIn 找人）<input id="verifyPerson" maxlength="200" autocomplete="off" placeholder="页面上看到的姓名"></label>
       <label>网站或域名（可选，只用于 Hunter）<input id="verifyWebsite" maxlength="253" autocomplete="off" placeholder="例如 acmeflooring.com"></label>
-      <div id="verifyLinks">${UI.verifyLinks('', {})}</div></section>
+      <div id="verifyLinks">${UI.verifyLinks('', {})}</div>
+      <h3>按上面填写的内容一键打开</h3><div id="liveOutbound">${UI.outboundBar({ company_name: '' }, 'full')}</div></section>
       ${UI.lookupQuota('discovery')}${UI.lookupQuota('research')}
       <section class="card pad"><h2>RDAP · 域名注册核对 <small>免费公开查询</small></h2>
       <p>输入公开公司域名，查注册日期、到期日和状态。不扣 CRM 搜索积分。部分注册局限流或限制浏览器访问时，请用 ICANN 官网手动查。</p>
@@ -210,19 +228,28 @@
     if(DB.mode==='demo') for(const el of document.querySelectorAll('[data-lookup-quota]')) el.textContent='演示环境没有正式 CRM 余额。';
     else UI.loadLookupQuota();
     const customsCompany = $('#customsCompany'), customsLinks = $('#customsLinks');
-    const verifyWebsite = $('#verifyWebsite'), verifyLinks = $('#verifyLinks');
+    const verifyWebsite = $('#verifyWebsite'), verifyLinks = $('#verifyLinks'), verifyPerson = $('#verifyPerson'), liveOutbound = $('#liveOutbound');
     const syncOutbound = () => {
       const company = customsCompany ? customsCompany.value : '';
       const website = verifyWebsite ? verifyWebsite.value : '';
+      const person = verifyPerson ? verifyPerson.value : '';
       if (customsLinks) customsLinks.innerHTML = UI.customsLinks(company);
-      if (verifyLinks) verifyLinks.innerHTML = UI.verifyLinks(company, { website });
+      if (verifyLinks) verifyLinks.innerHTML = UI.verifyLinks(company, { website, person });
+      if (liveOutbound) liveOutbound.innerHTML = UI.outboundBar({ company_name: company, contact_name: person, website }, 'full');
       const maps = document.querySelector('[data-tool-link="maps"]');
       if (maps) maps.href = UI.mapsLink(company);
       const hunter = document.querySelector('[data-tool-link="hunter"]');
       if (hunter) hunter.href = UI.hunterLink(website);
+      const apollo = document.querySelector('[data-tool-link="apollo"]');
+      if (apollo) {
+        const q = companyQuery(company);
+        apollo.href = q ? 'https://app.apollo.io/#/people?personTitles[]=purchasing%20manager&qOrganizationKeywordTags[]=' + encodeURIComponent(q) : 'https://app.apollo.io/';
+      }
     };
     if (customsCompany) customsCompany.oninput = syncOutbound;
     if (verifyWebsite) verifyWebsite.oninput = syncOutbound;
+    if (verifyPerson) verifyPerson.oninput = syncOutbound;
+    syncOutbound();
     const form=$('#rdapForm'), status=$('#rdapStatus'), output=$('#rdapResult'), button=form.querySelector('button');
     form.onsubmit=async event=>{
       event.preventDefault();

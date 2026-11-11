@@ -109,7 +109,7 @@
            · 负责人 ${esc(r.owner_id?UI.userName(r.owner_id):'未分配')} · ${esc(fmt(r.received_at))}</p>
           <p>${r.handled_at?'处理用时 ':'未处理已等 '}${esc(dur((new Date(r.handled_at||Date.now())-new Date(r.received_at))/60000))}
             · 首次回复 ${r.first_response_at?esc(dur((new Date(r.first_response_at)-new Date(r.received_at))/60000)):'未登记'}</p>
-          ${r.note?`<p>${esc(r.note)}</p>`:''}${!r.client_id&&oldClients(r.company,r.website,r.email).length?'<p class="warn">发现疑似同公司旧档案，处理时可以关联。</p>':''}
+          ${UI.outboundBar({ company_name: r.company || name(r.client_id), website: r.website, company_email: r.email })}${r.note?`<p>${esc(r.note)}</p>`:''}${!r.client_id&&oldClients(r.company,r.website,r.email).length?'<p class="warn">发现疑似同公司旧档案，处理时可以关联。</p>':''}
           <details data-original="${i}"><summary>查看原始内容</summary><div style="white-space:pre-wrap;overflow-wrap:anywhere"></div></details>
           <button class="ghost sm" data-inquiry="${i}">处理 / 关联</button></article>`).join('')||blank;
         if(page||rows.length>40)target.insertAdjacentHTML('beforeend',`<div class="pager"><button class="ghost" id="inqPrev" ${!page?'disabled':''}>上一页</button><span>第 ${page+1} 页</span><button class="ghost" id="inqNext" ${rows.length<=40?'disabled':''}>下一页</button></div>`);

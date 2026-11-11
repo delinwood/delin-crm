@@ -2,7 +2,7 @@
   const { esc, opt, $, $$ } = UI;
   const row = c => `<li><a href="#/client/${esc(c.id)}"><b>${esc(c.company_name)}</b></a> ${UI.attentionBadge(c)} ${UI.prBadge(c.priority)} ${UI.stBadge(c.status)}
     <div class="muted small">${esc([c.state, c.country].filter(Boolean).join(', '))} · ${UI.dueBadge(c.next_follow_up) || '未设跟进'} ${UI.ltBadge(c)} ${UI.ME.role === 'admin' ? '· ' + esc(UI.userName(c.owner_id)) : ''}</div>
-    <div class="qa">${c.company_phone ? UI.link(UI.tel(c.company_phone, c), '📞', 'btn ghost sm') : ''}${c.company_email ? UI.link('mailto:' + c.company_email, '✉️', 'btn ghost sm') : ''}${UI.wa(c.whatsapp || c.company_phone, c) ? UI.link(UI.wa(c.whatsapp || c.company_phone, c), '💬', 'btn ghost sm') : ''}<a class="btn ghost sm" href="#/templates/${esc(c.id)}">✍️</a><a class="btn ghost sm" href="#/client/${esc(c.id)}">记录 ›</a>${UI.chaseButton(c)}</div></li>`;
+    <div class="qa">${UI.outboundBar(c)}<a class="btn ghost sm" href="#/templates/${esc(c.id)}">✍️ 写开发信</a><a class="btn ghost sm" href="#/client/${esc(c.id)}">记录 ›</a>${UI.chaseButton(c)}</div></li>`;
 
   async function home() {
     const me = UI.ME, admin = me.role === 'admin', t = UI.today();

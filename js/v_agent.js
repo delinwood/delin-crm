@@ -45,7 +45,7 @@
       <p>${esc(c.country || '国家待确认')}${c.city ? ' · '+esc(c.city) : ''} · ${esc(C.typeName(c.customer_type) || '客户类型待确认')} · ${esc(statusLabel(c))}</p>
       <p>产品：${esc(productsOf(c))} · 优先级：${esc(c.priority || '未设置')} · 负责人：${esc(UI.userName(c.owner_id))}</p>
       <p>联系人：${esc(contactOf(c))}${c.contact_title ? ' · '+esc(c.contact_title) : ''} · ${esc(c.company_email || '邮箱待确认')}</p>
-      <p>${c.website ? UI.link(UI.url(c.website), c.website) : '官网待确认'}${c.company_phone ? ' · '+esc(c.company_phone) : ''}</p>
+      ${UI.outboundBar(c, 'full')}
       <p class="muted small">采购资格：${facts.map(([k,label])=>`${label}：${isPending(q[k])?'待核实':q[k].state==='no'?'已确认没有':esc(q[k].value||'已确认')}`).join('；')}</p>
       ${pending.length ? `<p class="warn">建议核实：${pending.map(esc).join('、')}。记录确认结论时请填写来源和日期。</p>` : '<p class="muted small">核心采购资格均已登记依据；联系前仍请检查资料时效。</p>'}
       <p>${latest ? `最近跟进：${esc(latest.entry_date || '')} · ${esc(C.channelName(latest.channel))} · ${esc(latest.content || '')}` : '暂无跟进记录'}</p>
