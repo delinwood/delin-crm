@@ -79,7 +79,7 @@
       const me = this.me(), db = this.load(); this.guard(null, data);
       if (!String(data.company_name || '').trim()) throw new Error('公司名称不能为空');
       if (me.role !== 'admin') { const d = await this.checkDuplicate({ name: data.company_name, website: data.website, phone: data.company_phone }); if (d.length) throw new Error(`客户已存在（${d[0].match}），归属：${d[0].owner_name}`); }
-      const c = { tags: [], products: [], ...data, id: uid('c'), created_by: me.id, owner_id: me.role === 'admin' ? (data.owner_id ?? me.id) : me.id, created_at: nowISO(), updated_at: nowISO() };
+      const c = { tags: [], products: [], ...data, id: uid('c'), created_by: me.id, owner_id: me.role === 'admin' ? (data.owner_id ?? me.id) : me.id, created_at: nowISO(), updated_at: nowISO(), pool_gate_subject: true };
       db.clients.unshift(c); this.audit(c.id, 'create', { company_name: c.company_name }); this.save(); return c;
     },
     async updateClient(id, patch, action) {
@@ -141,10 +141,27 @@
       this.save();
     },
     async deleteTemplate(id) { const me = this.me(), db = this.load(), x = db.templates.find(y => y.id === id); if (!x) return; if ((!x.owner_id && me.role !== 'admin') || (x.owner_id && x.owner_id !== me.id)) throw new Error('无权'); db.templates = db.templates.filter(y => y.id !== id); this.save(); },
+    async setAcquisitionOutcome(id, outcome) {
+      const c = await this.getClient(id), me = this.me(), row = this.load().clients.find(x => x.id === id);
+      if (!row.owner_id) throw new Error('请先领取或分配客户后再记录获客结果');
+      if (me.role !== 'admin' && row.owner_id !== me.id) throw new Error('只能记录自己负责客户的获客结果');
+      if (!window.PoolAdmission.OUTCOMES.some(item => item[0] === outcome)) throw new Error('请选择一项获客结果');
+      row.acquisition_outcome = outcome; this.save(); return { ...c, acquisition_outcome: outcome };
+    },
     async importClients(rows) {
-      if (!this.admin()) throw new Error('仅管理员可导入'); const db = this.load(), me = this.me(); let n = 0;
-      rows.forEach(r => { const id = uid('c'); db.clients.push({ tags: [], products: [], ...r, id, created_by: me.id, owner_id: r.owner_id || null, status: r.status || '未联系', created_at: nowISO(), updated_at: nowISO() }); n++; });
-      this.audit(null, 'import', { count: n }); this.save(); return n;
+      if (!this.admin()) throw new Error('仅管理员可导入'); const db = this.load(), me = this.me(), staged = [];
+      for (const r of rows) {
+        const owner = r.owner_id || null;
+        const row = { tags: [], products: [], ...r, id: uid('c'), created_by: me.id, owner_id: owner, status: r.status || '未联系', created_at: nowISO(), updated_at: nowISO(), pool_gate_subject: true };
+        if (!owner) {
+          const gate = PoolAdmission.evaluate(row, db.clients.concat(staged));
+          if (!gate.ok) throw new Error(gate.message);
+          row.pool_admitted_at = nowISO();
+          row.pool_admission = { rules: gate.rules, reason_codes: gate.reason_codes, source: 'import' };
+        }
+        staged.push(row);
+      }
+      db.clients.push(...staged); this.audit(null, 'import', { count: staged.length }); this.save(); return staged.length;
     },
     async backup() { if (!UI.canExport()) throw new Error('仅管理员'); const db = this.load(); return { exported_at: nowISO(), mode: 'demo', users: db.users.map(u => this.pub(u)), clients: db.clients, follow_ups: db.logs, quotes: db.quotes, samples: db.samples, audit_log: db.audit, templates: db.templates }; },
     async listLearningMaterials() { const db=this.load(), me=this.me(); return db.learning_materials.filter(x=>x.status==='published'||me.role==='admin').sort((a,b)=>(a.category||'').localeCompare(b.category||'')||(a.sort_order||0)-(b.sort_order||0)); },
@@ -164,7 +181,7 @@
     sb: null, profile: null, mode: 'supabase',
     init() { if (!this.sb) this.sb = window.supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY); return this.sb; },
     t(name) { return this.init().from(name); },
-    clean(d) { d = { ...d }; ['customer_type', 'priority', 'next_follow_up', 'owner_id', 'state', 'whatsapp', 'timezone', 'reach_channel'].forEach(k => { if (k in d && d[k] === '') d[k] = null; }); delete d.owner; return d; },
+    clean(d) { d = { ...d }; ['customer_type', 'priority', 'next_follow_up', 'owner_id', 'state', 'whatsapp', 'timezone', 'reach_channel', 'inquiry_url'].forEach(k => { if (k in d && d[k] === '') d[k] = null; }); ['owner', 'pool_admission', 'pool_admitted_at', 'pool_gate_subject'].forEach(k => delete d[k]); return d; },
     email(u) { return u.trim().toLowerCase() + '@' + cfg.USERNAME_EMAIL_DOMAIN; },
     chk(r) { if (r.error) throw new Error(r.error.message.replace(/^.*?ERROR:\s*/, '')); return r.data; },
     async login(username, password) { username = username.trim(); let email = username.includes('@') ? username.toLowerCase() : null;
@@ -184,7 +201,15 @@
     async listClients() { const out = []; for (let from = 0; ; from += 1000) { const rows = this.chk(await this.t('clients_view').select('*').order('updated_at', { ascending: false }).range(from, from + 999)); out.push(...rows); if (rows.length < 1000) break; } return out; },
     async getClient(id) { const r = this.chk(await this.t('clients_view').select('*').eq('id', id).maybeSingle()); if (!r) throw new Error('无权查看或客户不存在 Not found / no access'); return r; },
     async checkDuplicate({ name, website, phone }) { return this.chk(await this.init().rpc('check_duplicate', { p_name: U.nameKey(name), p_domain: U.domain(website), p_phone: U.phoneKey(phone) })); },
-    async createClient(d, opts = {}) { const me = this.profile; d = { ...d, owner_id: me.role === 'admin' ? (d.owner_id === undefined ? me.id : d.owner_id) : me.id }; if (opts.allowDuplicate) d.allow_duplicate = true; return this.chk(await this.t('clients').insert(this.clean(d)).select().single()); },
+    async createClient(d, opts = {}) {
+      const me = this.profile; d = { ...d, owner_id: me.role === 'admin' ? (d.owner_id === undefined ? me.id : d.owner_id) : me.id };
+      if (d.owner_id == null && window.PoolAdmission) {
+        const gate = PoolAdmission.evaluate(d, (window.UI && UI.CLIENTS) || []);
+        if (!gate.ok) throw new Error(gate.message);
+      }
+      if (opts.allowDuplicate) d.allow_duplicate = true; return this.chk(await this.t('clients').insert(this.clean(d)).select().single());
+    },
+    async setAcquisitionOutcome(id, outcome) { return this.chk(await this.init().rpc('crm_set_acquisition_outcome', { p_client: id, p_outcome: outcome })); },
     async updateClient(id, p) { p = { ...p }; ['id', 'created_by', 'created_at', 'last_follow_up', 'log_count', 'domain'].forEach(k => delete p[k]); return this.chk(await this.t('clients').update(this.clean(p)).eq('id', id).select().single()); },
     async claimClient(id) { return this.chk(await this.init().rpc('claim_client', { p_client_id: id })); },
     async bulkUpdate(ids, patch) { this.chk(await this.t('clients').update(this.clean(patch)).in('id', ids)); return ids.length; },

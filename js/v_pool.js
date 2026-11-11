@@ -2,7 +2,26 @@
 (function () {
   const { esc, opt, $, $$ } = UI;
   const originalList = DB.listClients.bind(DB), originalClaim = DB.claimClient.bind(DB);
-  let metadata = new Map(), filter = '', page = 0, selected = new Set(), lastKind;
+  let metadata = new Map(), filter = '', page = 0, selected = new Set(), lastKind, gateStats = null;
+  const rate = (n, d) => d ? (Math.round(1000 * n / d) / 10) + '%' : '—';
+  function renderGate(stats) {
+    if (UI.ME.role !== 'admin' || !stats) return '';
+    if (stats.error) return `<section class="card pad"><h2>公海准入反馈</h2><p class="warn">${esc(stats.error)}</p></section>`;
+    if (!stats.total) return `<section class="card pad"><h2>公海准入反馈</h2><p>还没有按本标准进入公海的公司。新客户通过准入后，业务员记录四种跟进结果，这里会按准入原因汇总。已在库的客户不会被重分类。</p></section>`;
+    const outcomes = [['unreachable','联系不上'],['not_buyer','能联系但不是买家'],['buyer_hold','是买家但暂不采购'],['quote_or_deal','已进入报价或成交']];
+    const reasons = (stats.groups || []).filter(group => group.kind === 'reason');
+    const rules = (stats.groups || []).filter(group => group.kind === 'rule');
+    const line = (items, key) => items.map(item => `${esc(PoolAdmission.label(item.code))} ${item[key]}`).join('、');
+    return `<section class="card pad"><h2>公海准入反馈</h2><p>只统计按本标准新进入公海的公司。已在库的客户不计入，也不会被移出。</p>
+      <p>共 ${stats.total} 家，已有结果 ${stats.decided} 家，待记录 ${stats.pending} 家。</p>
+      <p>${outcomes.map(([key, label]) => `${label} ${stats[key] || 0}（${rate(stats[key] || 0, stats.decided)}）`).join(' · ')}</p>
+      ${(stats.best || []).length ? `<p>更接近报价或仍是买家：${line(stats.best, 'positive')}</p>` : '<p>还没有足够的跟进结果来比较哪条准入原因更接近成交。</p>'}
+      ${(stats.miss || []).length ? `<p>更多是联系不上或不是买家：${line(stats.miss, 'negative')}</p>` : ''}
+      ${rules.length ? `<p class="muted small">按规则（报价或成交 / 已有结果）：${rules.map(group => `${esc(PoolAdmission.label(group.code))} ${group.quote_or_deal}/${group.decided}`).join(' · ')}</p>` : ''}
+      <div class="tblwrap"><table class="mini"><thead><tr><th>准入原因</th><th>公司数</th><th>联系不上</th><th>不是买家</th><th>暂不采购</th><th>报价或成交</th></tr></thead><tbody>
+      ${reasons.map(group => `<tr><td>${esc(PoolAdmission.label(group.code))}</td><td>${group.total}</td><td>${group.unreachable} ${rate(group.unreachable, group.decided)}</td><td>${group.not_buyer}</td><td>${group.buyer_hold}</td><td>${group.quote_or_deal} ${rate(group.quote_or_deal, group.decided)}</td></tr>`).join('') || '<tr><td colspan="6">暂无分组</td></tr>'}
+      </tbody></table></div></section>`;
+  }
   const all = async table => {
     const rows = [];
     for (let from=0;;from+=1000) {
@@ -23,6 +42,13 @@
     if (UI.isInvalid(c)) throw new Error('无效客户请保留在无效客户组，由老板审查');
     if (reason.trim().length<2 || reason.length>2000) throw new Error('请填写2至2000字的退回原因');
     const db=DB.load(); db.pool_metadata ||= {}; db.pool_events ||= [];
+    const row = db.clients.find(x => x.id === id);
+    if (row && row.pool_gate_subject && !row.pool_admitted_at && !row.pool_admission && window.PoolAdmission) {
+      const gate = PoolAdmission.evaluate(row, db.clients);
+      if (!gate.ok) throw new Error(gate.message);
+      row.pool_admitted_at = new Date().toISOString();
+      row.pool_admission = { rules: gate.rules, reason_codes: gate.reason_codes, source: 'release' };
+    }
     db.pool_metadata[id]={client_id:id,pool_kind:'secondary',return_reason:reason.trim(),previous_owner:c.owner_id,returned_at:new Date().toISOString()};
     db.pool_events.push({client_id:id,company_name:c.company_name,action:'release',actor_id:me.id,previous_owner:c.owner_id,reason:reason.trim(),at:new Date().toISOString()});
     Object.assign(db.clients.find(x=>x.id===id),{owner_id:null,next_follow_up:null,updated_at:new Date().toISOString()}); DB.save();
@@ -59,6 +85,11 @@
   async function pool(kind='initial') {
     const current=(UI.viewCurrent?.() || (() => true));
     const canArchive=UI.ME.role==='admin' && await (UI.archiveVisible?.() || DB.canDeleteClients()).catch(()=>false);
+    if (UI.ME.role === 'admin' && window.PoolAdmission) {
+      try {
+        gateStats = DB.mode === 'demo' ? PoolAdmission.summarize(UI.CLIENTS || []) : DB.chk(await DB.init().rpc('crm_pool_admission_stats'));
+      } catch (e) { gateStats = { error: e.message }; }
+    } else gateStats = null;
     if(current())drawPool(kind,canArchive);
   }
   function drawPool(kind,canArchive) {
@@ -69,13 +100,15 @@
     const list=base.filter(c=>[c.company_name,c.country,c.city,...(c.products||[]),c.return_reason].join(' ').toLowerCase().includes(filter.toLowerCase())).sort((a,b)=>(b.returned_at||b.created_at||'').localeCompare(a.returned_at||a.created_at||''));
     page=Math.min(page,Math.max(0,Math.ceil(list.length/50)-1));
     const paged=list.slice(page*50,page*50+50);
+    const hint = c => window.PoolAdmission ? `<p class="muted small">${esc(PoolAdmission.hint(c, UI.CLIENTS || []).text)}</p>` : '';
     const useBatch=!!UI.batchTools;
     const actions=(admin?`<button class="primary sm" data-batch-action="assign">批量分配并移出公海</button>`:`<button class="primary sm" data-batch-action="claim">批量领取</button>`)
       +(canArchive?'<button class="ghost sm danger" data-batch-action="trash">批量移入回收站</button>':'');
     UI.render(`<div class="pagehead"><h1>${secondary?'第二公海 · 退回客户':'谷歌客户公海 · 新线索'} <small>${list.length} 家</small></h1><div class="actions"><a class="btn ${secondary?'ghost':'primary'}" href="#/pool">谷歌客户公海 ${available.filter(c=>(c.pool_kind||'initial')==='initial').length}</a><a class="btn ${secondary?'primary':'ghost'}" href="#/second-pool">第二公海 ${available.filter(c=>c.pool_kind==='secondary').length}</a><button class="ghost" id="myPoolHistory">我的退回记录</button><button class="ghost" id="poolRefresh">刷新</button></div></div>
       <section class="card pad"><p>${secondary?'这里是业务员主动退回的客户，可查看原因后重新领取。':'这里是尚未分配的客户，可领取后开始跟进。'} 无效客户留在无效客户组。领取采用服务器锁定，先领取成功者获得归属。</p><label>搜索公司、国家、产品或退回原因<input id="poolSearch" value="${esc(filter)}"></label>
       ${!admin?'<p data-daily-claim role="status">每日最多自领30家，公海合并计数（北京时间）。</p>':''}${useBatch?UI.batchTools(actions):''}</section>
-      <section class="card tbl"><table><thead><tr><th>选择</th><th>公司</th><th>国家 / 城市</th><th>产品</th><th>最近退回</th><th>操作</th></tr></thead><tbody>${paged.map(c=>`<tr><td>${useBatch?UI.batchCheckbox(c.id,c.company_name):''}</td><td><a href="#/client/${esc(c.id)}">${esc(c.company_name)}</a><p class="muted small">${esc(U.domain(c.website))}</p>${UI.outboundBar(c)}</td><td>${esc([c.country,c.city].filter(Boolean).join(' / '))}</td><td>${UI.chips(c.products)}</td><td>${c.returned_at?`${c.previous_owner===UI.ME.id?'<strong>我曾跟进 · </strong>':''}${esc(c.return_reason||'已退回')}<p class="muted small">${esc(UI.userName(c.previous_owner))} · ${esc(poolDate(c.returned_at))}</p>`:'—'}</td><td>${!admin?`<button class="primary sm" data-pool-claim="${esc(c.id)}">领取为我的客户</button>`:''}<button class="ghost sm" data-pool-history="${esc(c.id)}">流转记录</button></td></tr>`).join('')||'<tr><td colspan="6">暂无符合条件的客户</td></tr>'}</tbody></table></section>
+      ${renderGate(gateStats)}
+      <section class="card tbl"><table><thead><tr><th>选择</th><th>公司</th><th>国家 / 城市</th><th>产品</th><th>最近退回</th><th>操作</th></tr></thead><tbody>${paged.map(c=>`<tr><td>${useBatch?UI.batchCheckbox(c.id,c.company_name):''}</td><td><a href="#/client/${esc(c.id)}">${esc(c.company_name)}</a><p class="muted small">${esc(U.domain(c.website))}</p>${hint(c)}${UI.outboundBar(c)}</td><td>${esc([c.country,c.city].filter(Boolean).join(' / '))}</td><td>${UI.chips(c.products)}</td><td>${c.returned_at?`${c.previous_owner===UI.ME.id?'<strong>我曾跟进 · </strong>':''}${esc(c.return_reason||'已退回')}<p class="muted small">${esc(UI.userName(c.previous_owner))} · ${esc(poolDate(c.returned_at))}</p>`:'—'}</td><td>${!admin?`<button class="primary sm" data-pool-claim="${esc(c.id)}">领取为我的客户</button>`:''}<button class="ghost sm" data-pool-history="${esc(c.id)}">流转记录</button></td></tr>`).join('')||'<tr><td colspan="6">暂无符合条件的客户</td></tr>'}</tbody></table></section>
       <div class="actions"><button class="ghost" id="poolPrev" ${page===0?'disabled':''}>上一页</button><span>${page+1} / ${Math.max(1,Math.ceil(list.length/50))}</span><button class="ghost" id="poolNext" ${(page+1)*50>=list.length?'disabled':''}>下一页</button></div>`,secondary?'second-pool':'pool');
     UI.showDailyClaims?.();
     $('#myPoolHistory').onclick=myHistory;

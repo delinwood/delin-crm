@@ -231,7 +231,7 @@
           <h3>公司信息 Company</h3>${kv('地址 Address', esc(c.address))}${kv('公司电话 Phone', c.company_phone ? UI.link(UI.tel(c.company_phone, c), c.company_phone) : '')}${kv('WhatsApp', wa ? UI.link(wa, c.whatsapp || c.company_phone + '（同公司电话，未核实是否开通）') : '')}
           ${kv('公司邮箱 Email', c.company_email ? UI.link('mailto:' + c.company_email, c.company_email) : '')}${kv('网站 Website', c.website ? UI.link(UI.url(c.website), c.website) : '')}
           <h3>采购联系人 Purchasing contact</h3>${kv('姓名 Name', esc(c.contact_name))}${kv('职位 Title', esc(c.contact_title))}${kv('LinkedIn', c.contact_linkedin ? UI.link(UI.url(c.contact_linkedin), c.contact_linkedin) : '')}
-          <h3>业务 Business</h3>${c.status==='成交' ? kv('成交说明',esc(c.deal_note||'历史成交客户，请在编辑资料中补填')) : ''}${kv('客户标记', UI.attentionControl(c))}${kv('无效原因', esc(c.invalid_reason || ''))}${kv('追单提醒', esc(UI.emailDueDate(c)) + ' ' + UI.chaseButton(c))}${kv('匹配产品 Products', `<div class="chips">${UI.chips(c.products)}</div>`)}${kv('标签 Tags', UI.tags(c.tags))}${kv('Apollo 搜索条件', esc(c.apollo_criteria))}
+          <h3>业务 Business</h3>${kv('获客结果', esc((window.PoolAdmission && PoolAdmission.outcomeLabel(c.acquisition_outcome)) || '未记录'))}${c.status==='成交' ? kv('成交说明',esc(c.deal_note||'历史成交客户，请在编辑资料中补填')) : ''}${kv('客户标记', UI.attentionControl(c))}${kv('无效原因', esc(c.invalid_reason || ''))}${kv('追单提醒', esc(UI.emailDueDate(c)) + ' ' + UI.chaseButton(c))}${kv('匹配产品 Products', `<div class="chips">${UI.chips(c.products)}</div>`)}${kv('标签 Tags', UI.tags(c.tags))}${kv('Apollo 搜索条件', esc(c.apollo_criteria))}
           ${kv('备注 Notes', esc(c.notes).replace(/\n/g, '<br>'))}${kv('来源/核实 Source', esc(c.source_note).replace(/(https?:\/\/[^\s;,)]+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>'))}
           <h3>海关核验 <small>Customs check</small></h3><p class="muted small">新标签页打开免费网站，不嵌入、不调用接口。有公司名时 ImportYeti、PortExaminer 会带上公司名；CNUData 打开首页。进口证据摘要、证据 URL、核实日写在来源/核实说明。</p>${UI.customsLinks?.(c.company_name) || ''}
           <h3>公司核实 <small>Company check</small></h3><p class="muted small">新标签页打开公开检索和登记入口。有公司名时带入搜索；有联系人时 LinkedIn 按人名找人；有网站时 Hunter 按域名查找公开邮箱。阿联酋、沙特只打开官网，请在官方页面填写公司名或 CR。不嵌入、不调用接口。</p>${UI.verifyLinks?.(c.company_name, { website: c.website, country: c.country, person: c.contact_name }) || ''}
@@ -242,6 +242,7 @@
           <div class="tabp" data-p="log" ${TAB !== 'log' ? 'hidden' : ''}>
             <form id="logf" class="logf"><div class="row3"><label>日期<input type="date" name="d" value="${UI.today()}" required></label><label>方式<select name="ch">${C.CHANNELS.map(x => opt(x[0], x[1], 'email')).join('')}</select></label>
             <label>状态<select name="st"><option value="">${c.status === '未联系' ? '自动→已联系' : '不变 Keep'}</option>${C.STATUSES.filter(s => admin || s[0] !== '无效').map(s => opt(s[0], s[0] + ' ' + s[1], '')).join('')}</select></label></div>
+            ${(c.owner_id && (admin || c.owner_id === UI.ME.id) && window.PoolAdmission) ? `<label>获客结果<select name="outcome"><option value="">暂不更改</option>${PoolAdmission.OUTCOMES.map(([k, l]) => `<option value="${k}" ${c.acquisition_outcome === k ? 'selected' : ''}>${l}</option>`).join('')}</select></label><p class="muted small">领取或分配后的客户，用这四项之一记录判断，可以以后改成另一项。</p>` : ''}
             <textarea name="t" rows="3" placeholder="沟通内容：发了什么、对方怎么回、下一步… What happened / next step" required></textarea>
             <label id="logDealNote" hidden>成交说明<textarea name="deal_note" rows="2" maxlength="2000" placeholder="写明成交产品、订单编号或日期，以及后续补货安排"></textarea></label><div class="row3"><label>下次跟进 Next follow-up<input type="date" name="nx" value="${UI.today(3)}"></label><div class="qd">${[[1, '明天'], [3, '3天'], [7, '1周'], [14, '2周'], [30, '1月']].map(d => `<button type="button" class="ghost sm" data-nx="${d[0]}">${d[1]}</button>`).join('')}<button type="button" class="ghost sm" data-nx="">不设</button></div><button class="primary">添加记录</button></div></form>
             <ul class="timeline">${logs.map(l => `<li><div class="dt">${esc(l.entry_date)} <span class="chn">${esc(C.channelName(l.channel))}</span> <span>${esc(l.author_name)}</span>${l.next_follow_up ? ` <span class="muted">→ 下次 ${esc(l.next_follow_up)}</span>` : ''}</div><div>${esc(l.content).replace(/\n/g, '<br>')}</div></li>`).join('') || '<li class="muted">暂无记录 No entries yet</li>'}</ul></div>
@@ -278,7 +279,11 @@
     logForm.st.onchange = syncLogDeal;
     syncLogDeal();
     $('#logf').onsubmit = async e => { e.preventDefault(); const f = e.target;
-      try { await DB.addLog(id, { entry_date: f.d.value, channel: f.ch.value, content: f.t.value.trim(), next_follow_up: f.nx.value, status: f.st.value, deal_note: logDealNote.value.trim() }); UI.toast('已保存 Saved'); await UI.refresh(); await UI.views.client.render(id); } catch (err) { UI.toast(err.message, 1); } };
+      try {
+        if (f.outcome && f.outcome.value) await DB.setAcquisitionOutcome(id, f.outcome.value);
+        await DB.addLog(id, { entry_date: f.d.value, channel: f.ch.value, content: f.t.value.trim(), next_follow_up: f.nx.value, status: f.st.value, deal_note: logDealNote.value.trim() });
+        UI.toast('已保存 Saved'); await UI.refresh(); await UI.views.client.render(id);
+      } catch (err) { UI.toast(err.message, 1); } };
     $('#qf').onsubmit = async e => { e.preventDefault(); const f = e.target, q = {}; ['product', 'spec', 'currency', 'price', 'unit', 'qty', 'incoterm', 'quote_date', 'valid_until', 'notes'].forEach(k => q[k] = f[k].value || null);
       q.price = +q.price; q.qty = q.qty ? +q.qty : null; try { await DB.addQuote(id, q); TAB = 'quote'; UI.toast('报价已记录'); await UI.refresh(); await UI.views.client.render(id); } catch (err) { UI.toast(err.message, 1); } };
     $('#sf').onsubmit = async e => { e.preventDefault(); const f = e.target, s = {}; ['items', 'status', 'sent_date', 'courier', 'tracking_no'].forEach(k => s[k] = f[k].value || null);
@@ -308,7 +313,7 @@
     const inp = (k, label, type, extra) => `<label>${label}<input name="${k}" type="${type || 'text'}" value="${esc(c[k] || '')}" ${extra || ''}></label>`;
     const lockNote = !admin && !isNew ? '<p class="muted small">🔒 初始资料（名称/国家/网站/电话/邮箱/地址）可修改但不可清空；负责人由管理员分配。</p>' : '';
     UI.render(`<div class="crumbs"><a href="${isNew ? '#/list' : '#/client/' + esc(c.id)}">← 返回 Back</a></div>
-      <form class="card pad form" id="cf"><h2>${isNew ? '新建客户 New client' : '编辑客户 Edit client'}</h2>${lockNote}<div id="dupbox"></div>
+      <form class="card pad form" id="cf"><h2>${isNew ? '新建客户 New client' : '编辑客户 Edit client'}</h2>${lockNote}<div id="dupbox"></div><div id="poolGate" hidden></div>
       <h3>公司信息 Company</h3><div class="g3">${inp('company_name', '公司名称 Company name *', 'text', 'required')}
         <label>客户类型 Type<select name="customer_type">${C.TYPES.map(t => opt(t[0], t[1] + ' ' + t[2], c.customer_type || 'importer')).join('')}</select></label>
         <label>国家 Country<input name="country" list="countries" value="${esc(c.country || '')}"></label>${inp('state', '州/省 State/Region (缩写如 CA, ON)')}${inp('city', '城市 City')}${inp('address', '地址 Address')}
@@ -330,7 +335,15 @@
       <label>来源/核实说明 Source / verification<textarea name="source_note" rows="2" placeholder="进口证据摘要、证据 URL、核实日">${esc(c.source_note || '')}</textarea></label>
       <div class="warn" id="uswarn" hidden>⚠️ 美国市场不推强化/实木复合地板 (USA: no laminate / engineered)</div>
       <div class="actions"><button class="primary">保存 Save</button></div></form>`, isNew ? 'list' : 'list');
-    const f = $('#cf'), chk = () => { $('#uswarn').hidden = !(/^(usa|us|united states)$/i.test(f.country.value.trim()) && [...f.querySelectorAll('[name=products]:checked')].some(x => C.US_EXCLUDED.includes(x.value))); syncReach(); };
+    const f = $('#cf'), chk = () => { $('#uswarn').hidden = !(/^(usa|us|united states)$/i.test(f.country.value.trim()) && [...f.querySelectorAll('[name=products]:checked')].some(x => C.US_EXCLUDED.includes(x.value))); syncReach(); syncPool(); };
+    const syncPool = () => {
+      const box = $('#poolGate');
+      if (!box || !window.PoolAdmission || !admin || !isNew || (f.owner_id && f.owner_id.value)) { if (box) box.hidden = true; return; }
+      const draft = { company_name: f.company_name.value, customer_type: f.customer_type.value, country: f.country.value, website: f.website.value, company_email: f.company_email.value, company_phone: f.company_phone.value, whatsapp: f.whatsapp.value, contact_linkedin: f.contact_linkedin.value, products: [...f.querySelectorAll('[name=products]:checked')].map(x => x.value) };
+      const gate = PoolAdmission.evaluate(draft, UI.CLIENTS || []);
+      box.hidden = false; box.className = gate.ok ? 'info' : 'warn';
+      box.textContent = gate.ok ? '放入公海：符合当前准入标准。' : gate.message;
+    };
     const syncReach = () => {
       const next = { country: f.country.value.trim(), reach_channel: f.reach_channel.value };
       const required = C.reachRequired(isNew, prior, next);
@@ -363,6 +376,10 @@
       }
       d.tags = f.tags.value.split(/[,，;；]/).map(s => s.trim().replace(/^#/, '')).filter(Boolean);
       d.products = [...f.querySelectorAll('[name=products]:checked')].map(x => x.value); if (admin) d.owner_id = f.owner_id.value || null;
+      if (isNew && admin && !d.owner_id && window.PoolAdmission) {
+        const gate = PoolAdmission.evaluate(d, UI.CLIENTS || []);
+        if (!gate.ok) return UI.toast(gate.message, 1);
+      }
       try {
         if (isNew && !dupOk) { const dups = await dupCheck(); if (dups.length) { if (!admin) return UI.toast('该客户已存在，不能重复创建；请联系管理员', 1); if (!confirm('发现可能重复，仍然保存？')) return; dupOk = true; } }
         const r = isNew ? await DB.createClient(d, { allowDuplicate: dupOk }) : await DB.updateClient(c.id, d); UI.toast('已保存 Saved'); location.hash = '#/client/' + r.id;
