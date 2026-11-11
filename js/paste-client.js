@@ -101,7 +101,8 @@
   const digits = value => String(value || '').replace(/\D/g, '');
   const stripEdge = value => clean(value).replace(/^[\s,，;；|/]+|[\s,，;；|/]+$/g, '');
   const isEmail = value => /^[A-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Z0-9-]+(\.[A-Z0-9-]+)+$/i.test(clean(value));
-  const isUrl = value => /^(?:https?:\/\/|www\.)/i.test(clean(value));
+  const isDomain = value => /^(?:https?:\/\/|www\.)?(?:[a-z0-9-]+\.)+[a-z]{2,}(?:\/[^\s]*)?$/i.test(clean(value)) && !isEmail(value);
+  const isUrl = value => /^(?:https?:\/\/|www\.)/i.test(clean(value)) || isDomain(value);
 
   function canonicalCountry(value) {
     const text = clean(value).replace(/[。．.]+$/g, '');
@@ -247,12 +248,16 @@
       if (email) { fields.company_email = email; rest = next; }
     }
     if (!fields.contact_linkedin) {
-      const [link, next] = take(rest, /https?:\/\/(?:[\w.-]+\.)?linkedin\.com\/[^\s<>，,；;)]+/i);
+      const [link, next] = take(rest, /(?:https?:\/\/)?(?:[\w.-]+\.)?linkedin\.com\/(?:in|company)\/[^\s<>，,；;)]+/i);
       if (link) { fields.contact_linkedin = link.replace(/[),.;]+$/, ''); rest = next; }
     }
     if (!fields.website) {
       const [site, next] = take(rest, /https?:\/\/[^\s<>，,；;)]+|www\.[^\s<>，,；;)]+/i);
       if (site && !/linkedin\.com\//i.test(site)) { fields.website = site.replace(/[),.;]+$/, ''); rest = next; }
+    }
+    if (!fields.website) {
+      const domainLine = rest.split('\n').map(stripEdge).find(line => isDomain(line) && !/linkedin\.com/i.test(line));
+      if (domainLine) { fields.website = domainLine.replace(/[),.;]+$/, ''); rest = rest.replace(domainLine, ' '); }
     }
     const waLine = rest.split('\n').find(line => /whats?\s*app|\bwa\b|微信/i.test(line) && phonesIn(line).length);
     if (waLine && !fields.whatsapp) {

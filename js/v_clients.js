@@ -367,9 +367,22 @@
     if (isNew) ['company_name', 'website', 'company_phone'].forEach(k => f[k].addEventListener('change', dupCheck));
     const pasteNames = { company_name: '公司名称', customer_type: '客户类型', country: '国家', state: '州/省', city: '城市', address: '地址', company_phone: '电话', whatsapp: 'WhatsApp', company_email: '邮箱', website: '网站', contact_name: '联系人', contact_title: '职位', contact_linkedin: 'LinkedIn', products: '产品', notes: '备注' };
     const pasteDirty = new Set();
-    let pasteNotes = '';
-    f.addEventListener('input', event => { if (event.target && event.target.name) pasteDirty.add(event.target.name); });
-    f.addEventListener('change', event => { if (event.target && event.target.name) pasteDirty.add(event.target.name); });
+    const pasteInitial = {};
+    const pasteAuto = {};
+    for (const key of Object.keys(pasteNames)) {
+      if (key === 'products') pasteInitial.products = [...f.querySelectorAll('[name=products]:checked')].map(box => box.value).sort().join(',');
+      else if (f.elements[key]) pasteInitial[key] = (f.elements[key].value || '').trim();
+    }
+    const productKey = () => [...f.querySelectorAll('[name=products]:checked')].map(box => box.value).sort().join(',');
+    // A filled value is kept when the user typed it, or it was already on the record. Clearing the field, or confirming a new paste, lets recognition replace it.
+    const occupied = (key, current) => {
+      if (!current) return false;
+      if (pasteAuto[key] && current === pasteAuto[key]) return false;
+      if (isNew && key === 'customer_type' && current === 'importer' && !pasteDirty.has(key)) return false;
+      return pasteDirty.has(key) || current === pasteInitial[key];
+    };
+    f.addEventListener('input', event => { if (event.target && event.target.name && event.target.id !== 'pasteClient') pasteDirty.add(event.target.name); });
+    f.addEventListener('change', event => { if (event.target && event.target.name && event.target.id !== 'pasteClient') pasteDirty.add(event.target.name); });
     const applyPaste = () => {
       const text = $('#pasteClient').value.trim();
       const summary = $('#pasteSummary');
@@ -379,45 +392,53 @@
       const filled = [], skipped = [];
       const conflicts = Object.keys(parsed.fields).filter(key => {
         const next = String(parsed.fields[key] || '').trim();
-        const current = (f.elements[key].value || '').trim();
-        return next && pasteDirty.has(key) && current && current !== next;
+        const current = (f.elements[key] && f.elements[key].value || '').trim();
+        return next && current !== next && occupied(key, current);
       });
-      const productNow = [...f.querySelectorAll('[name=products]:checked')].map(box => box.value);
-      const productConflict = parsed.products.length && pasteDirty.has('products') && productNow.some(key => !parsed.products.includes(key));
+      const productNow = productKey();
+      const productList = productNow ? productNow.split(',') : [];
+      const productOccupied = productNow && productNow !== (pasteAuto.products || '') && !(isNew && !pasteInitial.products && !pasteDirty.has('products'));
+      const productConflict = parsed.products.length && productOccupied && productList.some(key => !parsed.products.includes(key));
       let overwrite = false;
       if (conflicts.length || productConflict) {
         const names = [...conflicts.map(key => pasteNames[key]), productConflict ? '产品' : ''].filter(Boolean).join('、');
-        overwrite = confirm('这些栏已经写过内容：' + names + '。要用这次识别结果覆盖吗？\n取消则只填空白栏。');
+        overwrite = confirm('这些栏已经有内容：' + names + '。要用这次识别结果覆盖吗？\n取消则只填空白栏。清空栏位后可以重新识别。');
       }
       for (const [key, value] of Object.entries(parsed.fields)) {
+        if (key === 'timezone') continue;
         const next = String(value || '').trim();
         if (!next || !f.elements[key]) continue;
         const current = (f.elements[key].value || '').trim();
-        if (current === next) { filled.push(pasteNames[key]); continue; }
-        if (pasteDirty.has(key) && current && !overwrite) { skipped.push(pasteNames[key]); continue; }
-        f.elements[key].value = key === 'customer_type' && ![...f.elements[key].options].some(option => option.value === next) ? current : next;
-        if ((f.elements[key].value || '').trim() === next) filled.push(pasteNames[key]);
+        if (current === next) { pasteAuto[key] = next; filled.push(pasteNames[key]); continue; }
+        if (occupied(key, current) && !overwrite) { skipped.push(pasteNames[key]); continue; }
+        const allowed = key !== 'customer_type' || [...f.elements[key].options].some(option => option.value === next);
+        if (!allowed) continue;
+        f.elements[key].value = next;
+        pasteAuto[key] = next;
+        filled.push(pasteNames[key]);
       }
+      if (f.elements.timezone && !pasteDirty.has('timezone') && isNew && !pasteInitial.timezone) f.elements.timezone.value = '';
       if (parsed.products.length) {
-        const replace = overwrite || !pasteDirty.has('products');
+        const now = productKey();
+        const replace = overwrite || !now || now === (pasteAuto.products || '');
         f.querySelectorAll('[name=products]').forEach(box => {
           if (replace) box.checked = parsed.products.includes(box.value);
           else if (parsed.products.includes(box.value)) box.checked = true;
         });
-        filled.push('产品');
+        if (replace) pasteAuto.products = productKey();
+        if (replace || productKey() !== now) filled.push('产品');
+        if (productConflict && !overwrite) skipped.push('产品');
       }
       if (parsed.notes) {
         const notes = f.elements.notes;
         const current = notes.value.trim();
-        if (!pasteDirty.has('notes')) {
-          const head = pasteNotes && current.endsWith(pasteNotes) ? current.slice(0, -pasteNotes.length).trim() : (current === pasteNotes ? '' : current);
-          notes.value = [head, parsed.notes].filter(Boolean).join('\n');
-          pasteNotes = parsed.notes;
-          filled.push('备注');
-        } else if (!current.includes(parsed.notes)) {
-          notes.value = current + '\n' + parsed.notes;
-          filled.push('备注');
-        }
+        const previous = pasteAuto.notes || '';
+        if (!current) notes.value = parsed.notes;
+        else if (previous && current === previous) notes.value = parsed.notes;
+        else if (previous && current.endsWith('\n' + previous)) notes.value = current.slice(0, -(previous.length + 1)) + '\n' + parsed.notes;
+        else if (!current.includes(parsed.notes)) notes.value = current + '\n' + parsed.notes;
+        else { /* The same leftover is already in the notes. */ }
+        if (notes.value.trim() !== current || !current) { pasteAuto.notes = parsed.notes; filled.push('备注'); }
       }
       chk();
       dupCheck();
