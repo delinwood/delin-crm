@@ -6,20 +6,20 @@
   const rate = (n, d) => d ? (Math.round(1000 * n / d) / 10) + '%' : '—';
   function renderGate(stats) {
     if (UI.ME.role !== 'admin' || !stats) return '';
-    if (stats.error) return `<section class="card pad"><h2>公海准入反馈</h2><p class="warn">${esc(stats.error)}</p></section>`;
-    if (!stats.total) return `<section class="card pad"><h2>公海准入反馈</h2><p>还没有按本标准进入公海的公司。新客户通过准入后，业务员记录四种跟进结果，这里会按准入原因汇总。已在库的客户不会被重分类。</p></section>`;
+    if (stats.error) return `<section class="card pad"><h2>公海分级反馈</h2><p class="warn">${esc(stats.error)}</p></section>`;
+    if (!stats.total) return `<section class="card pad"><h2>公海分级反馈</h2><p>公海可以收录尚未确认的线索。新进入公海的公司会记下来源和市场提示。业务员登记跟进结果后，这里按来源比较哪些线索升到 A，哪些仍然没有买家。已在库的客户不会被改级或移出。</p></section>`;
     const outcomes = [['unreachable','联系不上'],['not_buyer','能联系但不是买家'],['buyer_hold','是买家但暂不采购'],['quote_or_deal','已进入报价或成交']];
-    const reasons = (stats.groups || []).filter(group => group.kind === 'reason');
-    const rules = (stats.groups || []).filter(group => group.kind === 'rule');
+    const reasons = (stats.groups || []).filter(group => group.kind === 'flag' || group.kind === 'source');
     const line = (items, key) => items.map(item => `${esc(PoolAdmission.label(item.code))} ${item[key]}`).join('、');
-    return `<section class="card pad"><h2>公海准入反馈</h2><p>只统计按本标准新进入公海的公司。已在库的客户不计入，也不会被移出。</p>
-      <p>共 ${stats.total} 家，已有结果 ${stats.decided} 家，待记录 ${stats.pending} 家。</p>
+    const sources = (stats.groups || []).filter(group => group.kind === 'source');
+    return `<section class="card pad"><h2>公海分级反馈</h2><p>只统计这次改动之后新进入公海的公司。公海允许不确定。升到 A 表示跟进结果是买家。已在库的客户不计入，也不会被改级。</p>
+      <p>共 ${stats.total} 家，已有结果 ${stats.decided} 家，待记录 ${stats.pending} 家，已升到 A ${stats.promoted || 0} 家（${rate(stats.promoted || 0, stats.total)}）。</p>
       <p>${outcomes.map(([key, label]) => `${label} ${stats[key] || 0}（${rate(stats[key] || 0, stats.decided)}）`).join(' · ')}</p>
-      ${(stats.best || []).length ? `<p>更接近报价或仍是买家：${line(stats.best, 'positive')}</p>` : '<p>还没有足够的跟进结果来比较哪条准入原因更接近成交。</p>'}
+      ${(stats.best || []).length ? `<p>更多升到 A：${line(stats.best, 'promoted')}</p>` : '<p>还没有跟进结果，暂时不能比较哪个来源更容易升到 A。</p>'}
       ${(stats.miss || []).length ? `<p>更多是联系不上或不是买家：${line(stats.miss, 'negative')}</p>` : ''}
-      ${rules.length ? `<p class="muted small">按规则（报价或成交 / 已有结果）：${rules.map(group => `${esc(PoolAdmission.label(group.code))} ${group.quote_or_deal}/${group.decided}`).join(' · ')}</p>` : ''}
-      <div class="tblwrap"><table class="mini"><thead><tr><th>准入原因</th><th>公司数</th><th>联系不上</th><th>不是买家</th><th>暂不采购</th><th>报价或成交</th></tr></thead><tbody>
-      ${reasons.map(group => `<tr><td>${esc(PoolAdmission.label(group.code))}</td><td>${group.total}</td><td>${group.unreachable} ${rate(group.unreachable, group.decided)}</td><td>${group.not_buyer}</td><td>${group.buyer_hold}</td><td>${group.quote_or_deal} ${rate(group.quote_or_deal, group.decided)}</td></tr>`).join('') || '<tr><td colspan="6">暂无分组</td></tr>'}
+      ${sources.length ? `<p class="muted small">按来源（升到 A / 总数）：${sources.map(group => `${esc(PoolAdmission.label(group.code))} ${group.promoted}/${group.total}`).join(' · ')}</p>` : ''}
+      <div class="tblwrap"><table class="mini"><thead><tr><th>来源或提示</th><th>公司数</th><th>升到 A</th><th>联系不上</th><th>不是买家</th><th>暂不采购</th><th>报价或成交</th></tr></thead><tbody>
+      ${reasons.map(group => `<tr><td>${esc(PoolAdmission.label(group.code))}</td><td>${group.total}</td><td>${group.promoted || 0} ${rate(group.promoted || 0, group.total)}</td><td>${group.unreachable}</td><td>${group.not_buyer}</td><td>${group.buyer_hold}</td><td>${group.quote_or_deal}</td></tr>`).join('') || '<tr><td colspan="7">暂无分组</td></tr>'}
       </tbody></table></div></section>`;
   }
   const all = async table => {
@@ -45,9 +45,10 @@
     const row = db.clients.find(x => x.id === id);
     if (row && row.pool_gate_subject && !row.pool_admitted_at && !row.pool_admission && window.PoolAdmission) {
       const gate = PoolAdmission.evaluate(row, db.clients);
-      if (!gate.ok) throw new Error(gate.message);
-      row.pool_admitted_at = new Date().toISOString();
-      row.pool_admission = { rules: gate.rules, reason_codes: gate.reason_codes, source: 'release' };
+      if (gate.ok) {
+        row.pool_admitted_at = new Date().toISOString();
+        row.pool_admission = { source: 'client_release', flags: gate.flags };
+      }
     }
     db.pool_metadata[id]={client_id:id,pool_kind:'secondary',return_reason:reason.trim(),previous_owner:c.owner_id,returned_at:new Date().toISOString()};
     db.pool_events.push({client_id:id,company_name:c.company_name,action:'release',actor_id:me.id,previous_owner:c.owner_id,reason:reason.trim(),at:new Date().toISOString()});

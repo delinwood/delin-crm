@@ -41,7 +41,7 @@ create table clients(
   id uuid primary key default gen_random_uuid(), owner_id uuid, company_name text, customer_type text, country text,
   website text, domain text, company_email text, company_phone text, whatsapp text,
   contact_name text, contact_linkedin text, products text[], tags text[], status text,
-  notes text, source_note text, name_key text, phone_key text, phone_key2 text,
+  notes text, source_note text, name_key text, phone_key text, phone_key2 text, priority text,
   created_by uuid, created_at timestamptz default now());
 create function fill_client_keys() returns trigger language plpgsql as $$
 begin
@@ -107,44 +107,43 @@ const login = async id => { await db.exec('reset role'); await db.query("select 
 const scalar = async (sql, args = []) => Object.values((await db.query(sql, args)).rows[0] || {})[0];
 const asOwner = async () => { await db.exec('reset role'); };
 
-test('new public-pool intake accepts Southeast Asia and rejects Saudi, UAE, a missing contact path, and a duplicate', async () => {
+test('an uncertain lead can enter the pool and a duplicate still cannot', async () => {
   await asOwner();
   await db.exec(`insert into clients(id, owner_id, company_name, country, customer_type, products, website, company_email, status)
     values('${jakarta}', null, 'Jakarta Floors', 'Indonesia', 'importer', array['spc'], 'https://jakarta.example', 'buy@jakarta.example', '未联系')`);
-  const admitted = await db.query('select rules, reason_codes, source from crm_pool_admissions where client_id=$1', [jakarta]);
+  const admitted = await db.query('select flags, source from crm_pool_admissions where client_id=$1', [jakarta]);
   assert.equal(admitted.rows[0].source, 'client_insert');
-  assert.ok(admitted.rows[0].rules.includes('sea_market'));
-  assert.ok(admitted.rows[0].reason_codes.includes('market:ID'));
-  assert.ok(admitted.rows[0].reason_codes.includes('buyer:importer'));
-  assert.ok(admitted.rows[0].reason_codes.includes('contact:email'));
-  assert.ok(await scalar('select pool_admitted_at is not null from clients where id=$1', [jakarta]));
-  assert.equal(await scalar('select pool_gate_subject from clients where id=$1', [jakarta]), true);
+  assert.ok(admitted.rows[0].flags.includes('market:sea'));
+  assert.ok(admitted.rows[0].flags.includes('certainty:unconfirmed'));
+  assert.equal(await scalar('select priority from clients where id=$1', [jakarta]), null);
+
+  await db.exec(`insert into clients(id, owner_id, company_name, country, status)
+    values('10000000-0000-4000-8000-000000000021', null, 'Uncertain Riyadh', 'Saudi Arabia', '未联系')`);
+  const gulf = await scalar('select flags from crm_pool_admissions where client_id=$1', ['10000000-0000-4000-8000-000000000021']);
+  assert.ok(gulf.includes('market:gulf'));
+  assert.ok(gulf.includes('missing_contact'));
+  assert.ok(gulf.includes('missing_buyer'));
 
   await db.exec(`insert into clients(id, owner_id, company_name, country, customer_type, products, company_phone, status)
     values('${held}', null, 'Hanoi Panels', 'Vietnam', 'wholesaler', array['laminate'], '+84 24 1234 5678', '未联系')`);
-  assert.ok((await scalar('select reason_codes from crm_pool_admissions where client_id=$1', [held])).includes('contact:phone'));
-  assert.ok((await scalar('select reason_codes from crm_pool_admissions where client_id=$1', [held])).includes('market:VN'));
+  assert.ok((await scalar('select flags from crm_pool_admissions where client_id=$1', [held])).includes('market:sea'));
 
-  await assert.rejects(db.exec(`insert into clients(id, company_name, country, customer_type, products, website, company_email, status)
-    values('10000000-0000-4000-8000-000000000021', 'Riyadh New', 'Saudi Arabia', 'importer', array['spc'], 'https://riyadh-new.example', 'new@riyadh.example', '未联系')`), /未进入公海|沙特/);
-  await assert.rejects(db.exec(`insert into clients(id, company_name, country, customer_type, products, website, company_email, status)
-    values('10000000-0000-4000-8000-000000000022', 'Dubai New', 'UAE', 'distributor', array['spc'], 'https://dubai-new.example', 'new@dubai.example', '未联系')`), /沙特和阿联酋/);
-  await assert.rejects(db.exec(`insert into clients(id, company_name, country, customer_type, products, website, status)
-    values('10000000-0000-4000-8000-000000000023', 'No Contact Floors', 'Philippines', 'importer', array['spc'], 'https://nocontact.example', '未联系')`), /缺少可联系途径/);
   await assert.rejects(db.exec(`insert into clients(id, company_name, country, customer_type, products, website, company_email, status)
     values('10000000-0000-4000-8000-000000000024', 'Jakarta Floors Ltd', 'Indonesia', 'importer', array['spc'], 'https://other-jakarta.example', 'other@jakarta.example', '未联系')`), /重复/);
-  assert.equal(Number(await scalar("select count(*) from clients where company_name in ('Riyadh New','Dubai New','No Contact Floors','Jakarta Floors Ltd')")), 0);
+  assert.equal(Number(await scalar("select count(*) from clients where company_name='Jakarta Floors Ltd'")), 0);
 
-  await db.exec(`insert into clients(id, owner_id, company_name, country, customer_type, products, website, company_email, status)
-    values('${ownedSaudi}', '${sales}', 'New Saudi Owned', 'Saudi Arabia', 'importer', array['spc'], 'https://owned-saudi.example', 'owned@saudi.example', '未联系')`);
-  await assert.rejects(db.query('update clients set owner_id=null where id=$1', [ownedSaudi]), /未进入公海/);
-  assert.equal(await scalar('select owner_id from clients where id=$1', [ownedSaudi]), sales);
+  await db.exec(`insert into clients(id, owner_id, company_name, country, status)
+    values('${ownedSaudi}', '${sales}', 'New Saudi Owned', 'UAE', '未联系')`);
+  await db.query('update clients set owner_id=null where id=$1', [ownedSaudi]);
+  assert.equal(await scalar('select owner_id from clients where id=$1', [ownedSaudi]), null);
+  assert.equal(await scalar('select source from crm_pool_admissions where client_id=$1', [ownedSaudi]), 'client_release');
+  assert.ok((await scalar('select flags from crm_pool_admissions where client_id=$1', [ownedSaudi])).includes('market:gulf'));
 
   const moved = await scalar('select crm_recycle_overdue_chase()');
   assert.equal(Number(moved), 1);
   assert.equal(await scalar('select owner_id from clients where id=$1', [legacy]), null);
   assert.equal(Number(await scalar('select count(*) from crm_pool_admissions where client_id=$1', [legacy])), 0);
-  assert.equal(await scalar('select owner_id from clients where id=$1', [ownedSaudi]), sales);
+  assert.equal(await scalar('select owner_id from clients where id=$1', [ownedSaudi]), null);
 });
 
 test('salesperson records one outcome and only an admin sees rates by admission reason', async () => {
@@ -158,52 +157,57 @@ test('salesperson records one outcome and only an admin sees rates by admission 
   await db.query("select crm_set_acquisition_outcome($1, 'unreachable')", [jakarta]);
   await db.query("select crm_set_acquisition_outcome($1, 'quote_or_deal')", [quoted]);
   await db.query("select crm_set_acquisition_outcome($1, 'buyer_hold')", [held]);
+  await asOwner();
+  assert.equal(await scalar('select priority from clients where id=$1', [jakarta]), null);
+  assert.equal(await scalar('select priority from clients where id=$1', [quoted]), 'A');
+  assert.equal(await scalar('select priority from clients where id=$1', [held]), 'A');
+  await login(sales);
   await assert.rejects(db.query("select crm_set_acquisition_outcome($1, 'maybe')", [jakarta]), /获客结果/);
   await assert.rejects(db.query('select crm_pool_admission_stats()'), /仅管理员/);
   await login(other);
   await assert.rejects(db.query("select crm_set_acquisition_outcome($1, 'not_buyer')", [jakarta]), /只能记录自己负责/);
   await login(boss);
   const stats = (await db.query('select crm_pool_admission_stats() as stats')).rows[0].stats;
-  assert.equal(stats.total, 3);
-  assert.equal(stats.decided, 3);
   assert.equal(stats.unreachable, 1);
   assert.equal(stats.quote_or_deal, 1);
   assert.equal(stats.buyer_hold, 1);
-  assert.equal(stats.pending, 0);
-  const importers = stats.groups.find(group => group.kind === 'reason' && group.code === 'buyer:importer');
-  assert.equal(importers.unreachable, 1);
-  assert.equal(importers.quote_or_deal, 1);
-  assert.equal(importers.buyer_hold, 0);
-  const wholesalers = stats.groups.find(group => group.kind === 'reason' && group.code === 'buyer:wholesaler');
-  assert.equal(wholesalers.buyer_hold, 1);
-  assert.equal(wholesalers.unreachable, 0);
-  assert.ok(stats.best.length > 0);
-  assert.ok(stats.miss.some(item => item.negative >= 1));
-  const rules = stats.groups.filter(group => group.kind === 'rule' && group.code === 'sea_market');
-  assert.equal(rules[0].total, 3);
+  assert.equal(stats.promoted, 2);
+  const sea = stats.groups.find(group => group.kind === 'flag' && group.code === 'market:sea');
+  const gulf = stats.groups.find(group => group.kind === 'flag' && group.code === 'market:gulf');
+  assert.ok(sea.total >= 2);
+  assert.equal(sea.promoted, 2);
+  assert.ok(gulf.total >= 1);
+  assert.equal(gulf.promoted, 0);
+  const inserted = stats.groups.find(group => group.kind === 'source' && group.code === 'client_insert');
+  assert.ok(inserted.total >= 3);
+  assert.equal(inserted.promoted, 2);
 });
 
 test('shared-pool leads and transfers cannot bypass the gate, and helpers stay internal', async () => {
   await asOwner();
   await db.query("select set_config('test.uid', $1, false)", [boss]);
-  await assert.rejects(db.query('select crm_social_save(null, 0, $1::jsonb)', [JSON.stringify({
-    company_name: 'New Saudi Social', country: 'Saudi Arabia', customer_type: 'importer', products: 'SPC',
-    email: 'social@saudi.example', website: 'https://social-saudi.example', lead_channel: 'social'
-  })]), /未进入公海|沙特/);
+  const saudiLead = await scalar('select crm_social_save(null, 0, $1::jsonb)', [JSON.stringify({
+    company_name: 'New Saudi Social', country: 'Saudi Arabia', products: '', lead_channel: 'social'
+  })]);
+  assert.ok(saudiLead);
   const saved = await scalar('select crm_social_save(null, 0, $1::jsonb)', [JSON.stringify({
     company_name: 'Saigon Panels', country: 'Vietnam', customer_type: 'distributor', products: 'SPC地板',
     email: 'buy@saigon.example', website: 'https://saigon.example', social_url: 'https://saigon.example/contact',
     lead_channel: 'social', progress: '未分配', precision: '待核实'
   })]);
   assert.equal(await scalar('select data->>\'customer_type\' from crm_social_leads where id=$1', [saved]), 'distributor');
-  await assert.rejects(db.query('select crm_social_release($1, 1, $2)', [oldLead, '转入公海']), /未进入公海|沙特/);
-  assert.equal(Number(await scalar('select count(*) from clients where company_name=$1', ['Old Saudi Panels'])), 0);
-  const clientId = await scalar('select crm_social_release($1, 1, $2)', [saved, '符合准入，转入公海']);
+  const oldClient = await scalar('select crm_social_release($1, 1, $2)', [oldLead, '转入公海']);
+  assert.equal(await scalar('select owner_id is null from clients where id=$1', [oldClient]), true);
+  assert.ok((await scalar('select flags from crm_pool_admissions where client_id=$1', [oldClient])).includes('market:gulf'));
+  const clientId = await scalar('select crm_social_release($1, 1, $2)', [saved, '转入公海']);
   assert.equal(await scalar('select owner_id is null from clients where id=$1', [clientId]), true);
   assert.equal(await scalar('select source from crm_pool_admissions where client_id=$1', [clientId]), 'social_release');
-  assert.ok((await scalar('select reason_codes from crm_pool_admissions where client_id=$1', [clientId])).includes('buyer:distributor'));
+  assert.ok((await scalar('select flags from crm_pool_admissions where client_id=$1', [clientId])).includes('market:sea'));
   assert.equal(await scalar('select customer_type from clients where id=$1', [clientId]), 'distributor');
   assert.ok((await scalar('select products from clients where id=$1', [clientId])).includes('spc'));
+  await assert.rejects(db.query('select crm_social_save(null, 0, $1::jsonb)', [JSON.stringify({
+    company_name: 'Jakarta Floors Ltd', country: 'Indonesia', email: 'dup@example.test', lead_channel: 'social'
+  })]), /重复/);
 
   await db.exec('reset role');
   await db.exec('set role anon');
@@ -221,5 +225,11 @@ test('shared-pool leads and transfers cannot bypass the gate, and helpers stay i
     website: 'https://manila.example', company_email: 'buy@manila.example'
   })])).rows[0].result;
   assert.equal(preview.ok, true);
-  assert.ok(preview.reason_codes.includes('market:PH'));
+  assert.ok(preview.flags.includes('market:sea'));
+  const thin = (await db.query("select crm_preview_pool_admission($1::jsonb) as result", [JSON.stringify({
+    company_name: 'Thin Lead', country: 'UAE'
+  })])).rows[0].result;
+  assert.equal(thin.ok, true);
+  assert.ok(thin.flags.includes('market:gulf'));
+  assert.ok(thin.flags.includes('missing_contact'));
 });

@@ -1,7 +1,8 @@
--- Public-pool admission gate, one follow-up outcome, and admin outcome rates.
+-- Public-pool source notes, follow-up outcomes, and promotion to grade A.
+-- 公海 may contain uncertain leads. Certainty is grade A after a buyer follow-up.
 -- Review this file before applying it. Do not run it on production until the boss approves.
 -- It does not scrape, send messages, unlock contacts, or call a paid API.
--- It does not update or delete existing clients. Only new public-pool intake is gated.
+-- It does not update or delete existing clients.
 -- Apply 20261111010000_linkedin_person_match.sql first. This file calls crm_linkedin_key.
 -- Safe to re-run: new columns use IF NOT EXISTS, functions use CREATE OR REPLACE,
 -- and the function patches stop once their marker is present.
@@ -20,19 +21,19 @@ alter table public.clients add constraint clients_acquisition_outcome_check
 comment on column public.clients.acquisition_outcome is
   'One salesperson result after a claimed client is worked: unreachable, not_buyer, buyer_hold, quote_or_deal.';
 comment on column public.clients.pool_gate_subject is
-  'True only for clients inserted after this gate. Legacy rows stay null and can still return to the pool.';
+  'True only for clients inserted after this change. Legacy rows stay null and are not backfilled.';
 comment on column public.clients.pool_admitted_at is
-  'Set when a new company is accepted into a public pool under the admission gate.';
+  'Set when a new company is recorded as entering a public pool. It is not a certainty grade.';
 
 create table if not exists public.crm_pool_admissions (
   client_id uuid primary key references public.clients(id) on delete cascade,
-  rules text[] not null,
-  reason_codes text[] not null,
   source text not null,
+  flags text[] not null default '{}',
   admitted_at timestamptz not null default now()
 );
+alter table public.crm_pool_admissions add column if not exists flags text[] default '{}';
 comment on table public.crm_pool_admissions is
-  'Rules and reason codes for companies that entered a public pool under the admission gate.';
+  'How a new company entered the public pool, plus soft flags. Not a pass/fail admission wall.';
 
 alter table public.crm_pool_admissions enable row level security;
 revoke all on public.crm_pool_admissions from public, anon, authenticated;
@@ -200,9 +201,7 @@ declare
   market text;
   buyer text;
   keys text[];
-  rules text[] := '{}';
-  codes text[] := '{}';
-  fail jsonb := '[]'::jsonb;
+  flags text[] := '{}';
   name text;
   site text;
   mail text;
@@ -216,31 +215,21 @@ declare
   duplicate boolean := false;
 begin
   if p is null or jsonb_typeof(p) is distinct from 'object' then p := '{}'::jsonb; end if;
+  flags := array_append(flags, 'certainty:unconfirmed');
   market := public.crm_pool_market_code(p->>'country');
   if market in ('ID','VN','TH','MY','PH','SG','KH','LA','MM','BN','TL','SEA') then
-    rules := array_append(rules, 'sea_market');
-    codes := array_append(codes, 'market:' || market);
+    flags := array_append(flags, 'market:sea');
   elsif market in ('SA','AE') then
-    fail := fail || jsonb_build_array(jsonb_build_object('code','sea_market','message','不在当前目标市场。沙特和阿联酋的新公司不能进入公海，已有客户仍可在各自档案里跟进。'));
+    flags := array_append(flags, 'market:gulf');
+  elsif coalesce(btrim(p->>'country'), '') = '' then
+    flags := array_append(flags, 'market:unknown');
   else
-    fail := fail || jsonb_build_array(jsonb_build_object('code','sea_market','message','不在当前目标市场（东南亚）。当前允许：印度尼西亚、越南、泰国、马来西亚、菲律宾、新加坡、柬埔寨、老挝、缅甸、文莱、东帝汶。'));
+    flags := array_append(flags, 'market:other');
   end if;
-
   buyer := public.crm_pool_buyer_code(p->>'customer_type');
   keys := public.crm_pool_product_keys(p->'products');
-  if buyer is not null and buyer <> 'factory' and coalesce(cardinality(keys), 0) > 0 then
-    rules := array_append(rules, 'buyer_product');
-    codes := array_append(codes, 'buyer:' || buyer);
-    codes := codes || (select coalesce(array_agg('product:' || item), '{}') from unnest(keys) item);
-  elsif buyer = 'factory' then
-    fail := fail || jsonb_build_array(jsonb_build_object('code','buyer_product','message','同行工厂不能进入公海。需要地板或墙板的贸易、工程或分销买家。'));
-  elsif coalesce(cardinality(keys), 0) = 0 and buyer is null then
-    fail := fail || jsonb_build_array(jsonb_build_object('code','buyer_product','message','需要地板或墙板产品，并且是贸易、工程或分销买家。同行工厂不能进入公海。'));
-  elsif coalesce(cardinality(keys), 0) = 0 then
-    fail := fail || jsonb_build_array(jsonb_build_object('code','buyer_product','message','未看到地板或墙板相关产品，不能进入公海。'));
-  else
-    fail := fail || jsonb_build_array(jsonb_build_object('code','buyer_product','message','不是地板/墙板的贸易、工程或分销买家。随机公司不能进入公海。'));
-  end if;
+  if buyer is null or buyer = 'factory' then flags := array_append(flags, 'missing_buyer'); end if;
+  if coalesce(cardinality(keys), 0) = 0 then flags := array_append(flags, 'missing_product'); end if;
 
   name := btrim(coalesce(p->>'company_name', ''));
   site := coalesce(public.norm_domain(p->>'website'), '');
@@ -252,29 +241,13 @@ begin
   inquiry := btrim(coalesce(nullif(btrim(coalesce(p->>'inquiry_url', '')), ''), p->>'social_url', ''));
   if inquiry !~* '^https?://[^[:space:]]+$' or char_length(inquiry) > 2048 then inquiry := ''; end if;
   website := btrim(coalesce(p->>'website', ''));
-  if site like '%.%' then entity := true; codes := array_append(codes, 'entity:website'); end if;
-  if mail <> '' then entity := true; codes := array_append(codes, 'entity:email'); end if;
-  if phone <> '' or wa <> '' then entity := true; codes := array_append(codes, 'entity:phone'); end if;
-  if link <> '' then entity := true; codes := array_append(codes, 'entity:linkedin'); end if;
-  if char_length(name) between 2 and 200 and entity then
-    rules := array_append(rules, 'entity');
-  else
-    codes := array_remove(array_remove(array_remove(array_remove(codes, 'entity:website'), 'entity:email'), 'entity:phone'), 'entity:linkedin');
-    fail := fail || jsonb_build_array(jsonb_build_object('code','entity','message','缺少可核对的公司主体：需要公司名称，以及网站、邮箱、电话或 LinkedIn 其中一项。'));
+  if site like '%.%' or mail <> '' or phone <> '' or wa <> '' or link <> '' then entity := true; end if;
+  if char_length(name) < 2 or not entity then flags := array_append(flags, 'missing_entity'); end if;
+  if mail <> '' or phone <> '' or wa <> '' or inquiry <> ''
+     or (site like '%.%' and website ~* '(^|/)(contact|inquiry|enquiry|quote|get-in-touch|contact-us)(/|$)') then
+    contact := true;
   end if;
-
-  if mail <> '' then contact := true; codes := array_append(codes, 'contact:email'); end if;
-  if phone <> '' then contact := true; codes := array_append(codes, 'contact:phone'); end if;
-  if wa <> '' then contact := true; codes := array_append(codes, 'contact:whatsapp'); end if;
-  if inquiry <> '' or (site like '%.%' and website ~* '(^|/)(contact|inquiry|enquiry|quote|get-in-touch|contact-us)(/|$)') then
-    contact := true; codes := array_append(codes, 'contact:inquiry');
-  end if;
-  if contact then
-    rules := array_append(rules, 'contact_path');
-  else
-    codes := array_remove(array_remove(array_remove(array_remove(codes, 'contact:email'), 'contact:phone'), 'contact:whatsapp'), 'contact:inquiry');
-    fail := fail || jsonb_build_array(jsonb_build_object('code','contact_path','message','缺少可联系途径：需要邮箱、网站询盘链接，或 WhatsApp/电话。仅有官网首页不够。'));
-  end if;
+  if not contact then flags := array_append(flags, 'missing_contact'); end if;
 
   duplicate := exists (
     select 1 from public.clients c
@@ -298,19 +271,10 @@ begin
         or (wa <> '' and public.phone_key(coalesce(nullif(r.data->>'whatsapp', ''), r.data->>'phone')) = wa)
       )
   );
-  if duplicate then
-    fail := fail || jsonb_build_array(jsonb_build_object('code','not_duplicate','message','与已有客户重复（名称、网站、电话、邮箱或 LinkedIn），未写入公海。'));
-  else
-    rules := array_append(rules, 'not_duplicate');
-  end if;
-
   return jsonb_build_object(
-    'ok', jsonb_array_length(fail) = 0,
-    'rules', to_jsonb(rules),
-    'reason_codes', case when jsonb_array_length(fail) = 0 then to_jsonb(codes) else '[]'::jsonb end,
-    'failures', fail,
-    'message', case when jsonb_array_length(fail) = 0 then ''
-      else '未进入公海：' || (select string_agg(item->>'message', '；') from jsonb_array_elements(fail) item) end
+    'ok', not duplicate,
+    'flags', to_jsonb(flags),
+    'message', case when duplicate then '未写入公海：与已有客户重复（名称、网站、电话、邮箱或 LinkedIn）。' else '' end
   );
 end
 $$;
@@ -321,28 +285,14 @@ begin
   if coalesce(p_eval->>'ok', '') <> 'true' then
     raise exception '%', coalesce(p_eval->>'message', '未进入公海');
   end if;
-  insert into public.crm_pool_admissions(client_id, rules, reason_codes, source)
+  insert into public.crm_pool_admissions(client_id, source, flags)
   values (
     p_client,
-    array(select jsonb_array_elements_text(p_eval->'rules')),
-    array(select jsonb_array_elements_text(p_eval->'reason_codes')),
-    coalesce(nullif(btrim(coalesce(p_source, '')), ''), 'pool')
+    coalesce(nullif(btrim(coalesce(p_source, '')), ''), 'pool'),
+    coalesce(array(select jsonb_array_elements_text(p_eval->'flags')), '{}')
   )
   on conflict (client_id) do nothing;
   update public.clients set pool_admitted_at = coalesce(pool_admitted_at, now()) where id = p_client;
-end
-$$;
-
-create or replace function public.crm_pool_release_allowed(p_client uuid)
-returns boolean language plpgsql volatile security definer set search_path=public,pg_temp as $$
-declare customer public.clients; result jsonb;
-begin
-  select * into customer from public.clients where id = p_client;
-  if not found then return false; end if;
-  if customer.pool_gate_subject is not true then return true; end if;
-  if exists (select 1 from public.crm_pool_admissions where client_id = customer.id) then return true; end if;
-  result := public.crm_evaluate_pool_admission(public.crm_client_pool_payload(customer), customer.id);
-  return coalesce(result->>'ok', '') = 'true';
 end
 $$;
 
@@ -359,12 +309,6 @@ begin
   end if;
   if tg_op = 'UPDATE' then
     new.pool_gate_subject := old.pool_gate_subject;
-    if old.owner_id is not null and new.owner_id is null
-       and old.pool_gate_subject is true
-       and not exists (select 1 from public.crm_pool_admissions where client_id = old.id) then
-      result := public.crm_evaluate_pool_admission(public.crm_client_pool_payload(new), old.id);
-      if coalesce(result->>'ok', '') <> 'true' then raise exception '%', result->>'message'; end if;
-    end if;
   end if;
   return new;
 end
@@ -376,12 +320,14 @@ declare result jsonb;
 begin
   if tg_op = 'INSERT' and new.owner_id is null then
     result := public.crm_evaluate_pool_admission(public.crm_client_pool_payload(new), new.id);
-    perform public.crm_save_pool_admission(new.id, result, 'client_insert');
+    perform public.crm_save_pool_admission(new.id, result, case when '自动获客' = any(coalesce(new.tags, '{}')) then 'discovery' else 'client_insert' end);
   elsif tg_op = 'UPDATE' and old.owner_id is not null and new.owner_id is null
         and new.pool_gate_subject is true
         and not exists (select 1 from public.crm_pool_admissions where client_id = new.id) then
     result := public.crm_evaluate_pool_admission(public.crm_client_pool_payload(new), new.id);
-    perform public.crm_save_pool_admission(new.id, result, 'client_release');
+    if coalesce(result->>'ok', '') = 'true' then
+      perform public.crm_save_pool_admission(new.id, result, 'client_release');
+    end if;
   end if;
   return null;
 end
@@ -446,84 +392,92 @@ begin
     raise exception '只能记录自己负责客户的获客结果' using errcode = '42501';
   end if;
   if public.crm_is_archived(p_client) then raise exception '归档客户不能修改获客结果'; end if;
-  update public.clients set acquisition_outcome = p_outcome where id = p_client;
+  update public.clients set
+    acquisition_outcome = p_outcome,
+    priority = case
+      when p_outcome in ('buyer_hold','quote_or_deal') and coalesce(priority, 'C') not in ('A','A+') then 'A'
+      else priority
+    end
+  where id = p_client;
 end
 $$;
 
 create or replace function public.crm_pool_admission_stats()
 returns jsonb language plpgsql stable security definer set search_path=public,pg_temp as $$
 declare
-  v_total integer; v_decided integer; v_pending integer;
+  v_total integer; v_decided integer; v_pending integer; v_promoted integer;
   v_unreachable integer; v_not_buyer integer; v_buyer_hold integer; v_quote integer;
   groups jsonb; best jsonb; miss jsonb;
 begin
   if public.is_active_user() is not true or public.is_admin() is not true then
-    raise exception '仅管理员可查看公海准入反馈' using errcode = '42501';
+    raise exception '仅管理员可查看公海分级反馈' using errcode = '42501';
   end if;
   select count(*)::integer,
     count(*) filter (where c.acquisition_outcome is not null)::integer,
     count(*) filter (where c.acquisition_outcome is null)::integer,
+    count(*) filter (where c.priority in ('A','A+') and c.acquisition_outcome in ('buyer_hold','quote_or_deal'))::integer,
     count(*) filter (where c.acquisition_outcome = 'unreachable')::integer,
     count(*) filter (where c.acquisition_outcome = 'not_buyer')::integer,
     count(*) filter (where c.acquisition_outcome = 'buyer_hold')::integer,
     count(*) filter (where c.acquisition_outcome = 'quote_or_deal')::integer
-  into v_total, v_decided, v_pending, v_unreachable, v_not_buyer, v_buyer_hold, v_quote
+  into v_total, v_decided, v_pending, v_promoted, v_unreachable, v_not_buyer, v_buyer_hold, v_quote
   from public.crm_pool_admissions a
   join public.clients c on c.id = a.client_id;
 
   with base as (
-    select a.rules, a.reason_codes, c.acquisition_outcome as outcome
+    select a.source, a.flags, c.acquisition_outcome as outcome,
+      (c.priority in ('A','A+') and c.acquisition_outcome in ('buyer_hold','quote_or_deal')) as promoted
     from public.crm_pool_admissions a
     join public.clients c on c.id = a.client_id
   ), grouped as (
-    select 'reason'::text as kind, code,
+    select 'source'::text as kind, source as code,
       count(*)::integer as total,
       count(*) filter (where outcome is not null)::integer as decided,
       count(*) filter (where outcome is null)::integer as pending,
+      count(*) filter (where promoted)::integer as promoted,
       count(*) filter (where outcome = 'unreachable')::integer as unreachable,
       count(*) filter (where outcome = 'not_buyer')::integer as not_buyer,
       count(*) filter (where outcome = 'buyer_hold')::integer as buyer_hold,
       count(*) filter (where outcome = 'quote_or_deal')::integer as quote_or_deal
-    from base cross join lateral unnest(reason_codes) as code
-    group by code
+    from base group by source
     union all
-    select 'rule'::text, code,
+    select 'flag'::text, code,
       count(*)::integer,
       count(*) filter (where outcome is not null)::integer,
       count(*) filter (where outcome is null)::integer,
+      count(*) filter (where promoted)::integer,
       count(*) filter (where outcome = 'unreachable')::integer,
       count(*) filter (where outcome = 'not_buyer')::integer,
       count(*) filter (where outcome = 'buyer_hold')::integer,
       count(*) filter (where outcome = 'quote_or_deal')::integer
-    from base cross join lateral unnest(rules) as code
+    from base cross join lateral unnest(flags) as code
     group by code
   )
   select coalesce(jsonb_agg(jsonb_build_object(
-    'kind', kind, 'code', code, 'total', total, 'decided', decided, 'pending', pending,
+    'kind', kind, 'code', code, 'total', total, 'decided', decided, 'pending', pending, 'promoted', promoted,
     'unreachable', unreachable, 'not_buyer', not_buyer, 'buyer_hold', buyer_hold, 'quote_or_deal', quote_or_deal
   ) order by kind, code), '[]'::jsonb) into groups from grouped;
 
   with reason as (
     select code,
       (count(*) filter (where c.acquisition_outcome in ('buyer_hold','quote_or_deal')))::integer as positive,
-      (count(*) filter (where c.acquisition_outcome in ('unreachable','not_buyer')))::integer as negative,
-      (count(*) filter (where c.acquisition_outcome = 'quote_or_deal'))::integer as won,
-      (count(*) filter (where c.acquisition_outcome = 'unreachable'))::integer as missed
+      (count(*) filter (where c.priority in ('A','A+') and c.acquisition_outcome in ('buyer_hold','quote_or_deal')))::integer as promoted,
+      (count(*) filter (where c.acquisition_outcome in ('unreachable','not_buyer')))::integer as negative
     from public.crm_pool_admissions a
     join public.clients c on c.id = a.client_id
-    cross join lateral unnest(a.reason_codes) as code
+    cross join lateral unnest(a.flags) as code
     where c.acquisition_outcome is not null
     group by code
   )
   select
-    coalesce((select jsonb_agg(jsonb_build_object('code', code, 'positive', positive, 'negative', negative) order by positive desc, won desc, code)
-      from (select * from reason order by positive desc, won desc, code limit 5) s), '[]'::jsonb),
-    coalesce((select jsonb_agg(jsonb_build_object('code', code, 'positive', positive, 'negative', negative) order by negative desc, missed desc, code)
-      from (select * from reason order by negative desc, missed desc, code limit 5) s), '[]'::jsonb)
+    coalesce((select jsonb_agg(jsonb_build_object('code', code, 'positive', positive, 'promoted', promoted, 'negative', negative) order by promoted desc, positive desc, code)
+      from (select * from reason order by promoted desc, positive desc, code limit 5) s), '[]'::jsonb),
+    coalesce((select jsonb_agg(jsonb_build_object('code', code, 'positive', positive, 'promoted', promoted, 'negative', negative) order by negative desc, code)
+      from (select * from reason order by negative desc, code limit 5) s), '[]'::jsonb)
   into best, miss;
 
   return jsonb_build_object(
-    'total', v_total, 'decided', v_decided, 'pending', v_pending,
+    'total', v_total, 'decided', v_decided, 'pending', v_pending, 'promoted', v_promoted,
     'unreachable', v_unreachable, 'not_buyer', v_not_buyer, 'buyer_hold', v_buyer_hold, 'quote_or_deal', v_quote,
     'groups', groups, 'best', best, 'miss', miss
   );
@@ -538,7 +492,6 @@ revoke all on function public.crm_pool_product_keys(jsonb) from public, anon, au
 revoke all on function public.crm_client_pool_payload(public.clients) from public, anon, authenticated;
 revoke all on function public.crm_evaluate_pool_admission(jsonb, uuid) from public, anon, authenticated;
 revoke all on function public.crm_save_pool_admission(uuid, jsonb, text) from public, anon, authenticated;
-revoke all on function public.crm_pool_release_allowed(uuid) from public, anon, authenticated;
 revoke all on function public.crm_guard_pool_admission() from public, anon, authenticated;
 revoke all on function public.crm_record_pool_admission() from public, anon, authenticated;
 revoke all on function public.crm_guard_social_pool_admission() from public, anon, authenticated;
@@ -616,22 +569,6 @@ $body$;
   execute src;
 end
 $release$;
-
--- Automatic return to the pool must not abort when one new company fails the gate.
--- That company stays with its salesperson. Legacy clients are unchanged.
-do $recycle$
-declare src text; needle text;
-begin
-  src := pg_get_functiondef('public.crm_recycle_overdue_chase()'::regprocedure);
-  if position('crm_pool_release_allowed' in src) > 0 then return; end if;
-  needle := 'if not found or c.owner_id is distinct from candidate.owner_id then continue; end if;';
-  if position(needle in src) = 0 then
-    raise exception '找不到公海回收入口，已停止';
-  end if;
-  src := replace(src, needle, needle || ' if not public.crm_pool_release_allowed(c.id) then continue; end if;');
-  execute src;
-end
-$recycle$;
 
 notify pgrst, 'reload schema';
 

@@ -1,7 +1,6 @@
-/* Public-pool admission preview. The database trigger is authoritative.
-   This mirror lets the pages explain a rejection before the request, and
-   shows a read-only "would this pass today" hint. It does not scrape,
-   send messages, or call a paid API. */
+/* Public-pool notes. 公海 can hold uncertain leads. Grade A is the certainty mark.
+   Duplicate matches still follow the existing client check. This does not scrape
+   or call a paid API. */
 (function (root) {
   const MARKETS = [
     ['ID', ['indonesia', 'republic of indonesia', 'id', '印度尼西亚', '印尼']],
@@ -70,8 +69,15 @@
     'product:flooring': '产品 · 地板', 'product:wall': '产品 · 墙板',
     'entity:website': '主体 · 网站', 'entity:email': '主体 · 邮箱', 'entity:phone': '主体 · 电话', 'entity:linkedin': '主体 · LinkedIn',
     'contact:email': '联系 · 邮箱', 'contact:phone': '联系 · 电话', 'contact:whatsapp': '联系 · WhatsApp', 'contact:inquiry': '联系 · 网站询盘链接',
-    sea_market: '规则 · 目标市场（东南亚）', buyer_product: '规则 · 地板/墙板买家',
-    entity: '规则 · 可核对的公司主体', contact_path: '规则 · 可联系途径', not_duplicate: '规则 · 不是重复客户'
+    'market:sea': '市场提示 · 东南亚', 'market:gulf': '市场提示 · 沙特/阿联酋',
+    'market:other': '市场提示 · 其他地区', 'market:unknown': '市场提示 · 国家未填',
+    'missing_contact': '资料不完整 · 缺少联系途径', 'missing_buyer': '资料不完整 · 买家未确认',
+    'missing_product': '资料不完整 · 产品未确认', 'missing_entity': '资料不完整 · 主体信息较少',
+    'certainty:unconfirmed': '确定性 · 进入公海时尚未确认',
+    'source:client_insert': '来源 · 直接进入公海', 'source:discovery': '来源 · 自动获客',
+    'source:client_release': '来源 · 退回公海', 'source:social_release': '来源 · 共享表转入',
+    client_insert: '来源 · 直接进入公海', discovery: '来源 · 自动获客',
+    client_release: '来源 · 退回公海', social_release: '来源 · 共享表转入'
   };
 
   function norm(value) {
@@ -194,68 +200,40 @@
     });
   }
   function evaluate(input, existing) {
-    const row = read(input), failures = [], codes = [], passed = [];
+    const row = read(input), flags = ['certainty:unconfirmed'];
     const market = marketOf(row.country);
-    if (MARKETS.some(([code]) => code === market)) {
-      passed.push('sea_market');
-      codes.push('market:' + market);
-    } else if (market === 'SA' || market === 'AE') {
-      failures.push({ code: 'sea_market', message: '不在当前目标市场。沙特和阿联酋的新公司不能进入公海，已有客户仍可在各自档案里跟进。' });
-    } else {
-      failures.push({ code: 'sea_market', message: '不在当前目标市场（东南亚）。当前允许：印度尼西亚、越南、泰国、马来西亚、菲律宾、新加坡、柬埔寨、老挝、缅甸、文莱、东帝汶。' });
-    }
+    if (MARKETS.some(([code]) => code === market)) flags.push('market:sea');
+    else if (market === 'SA' || market === 'AE') flags.push('market:gulf');
+    else if (!norm(row.country)) flags.push('market:unknown');
+    else flags.push('market:other');
     const buyer = buyerOf(row.customer_type), products = productKeys(row.products);
-    if (buyer && buyer !== 'factory' && products.length) {
-      passed.push('buyer_product');
-      codes.push('buyer:' + buyer);
-      products.forEach(key => codes.push('product:' + key));
-    } else if (buyer === 'factory') {
-      failures.push({ code: 'buyer_product', message: '同行工厂不能进入公海。需要地板或墙板的贸易、工程或分销买家。' });
-    } else if (!products.length && !(buyer && buyer !== 'factory')) {
-      failures.push({ code: 'buyer_product', message: '需要地板或墙板产品，并且是贸易、工程或分销买家。同行工厂不能进入公海。' });
-    } else if (!products.length) {
-      failures.push({ code: 'buyer_product', message: '未看到地板或墙板相关产品，不能进入公海。' });
-    } else {
-      failures.push({ code: 'buyer_product', message: '不是地板/墙板的贸易、工程或分销买家。随机公司不能进入公海。' });
-    }
+    if (!buyer || buyer === 'factory') flags.push('missing_buyer');
+    if (!products.length) flags.push('missing_product');
     const site = domain(row.website), mail = emailOf(row.email), phone = phoneKey(row.phone), wa = phoneKey(row.whatsapp), link = linkedinKey(row.linkedin);
-    const entity = [];
-    if (site.includes('.')) entity.push('website');
-    if (mail) entity.push('email');
-    if (phone || wa) entity.push('phone');
-    if (link) entity.push('linkedin');
-    if (row.company_name.length >= 2 && row.company_name.length <= 200 && entity.length) {
-      passed.push('entity');
-      entity.forEach(bit => codes.push('entity:' + bit));
-    } else failures.push({ code: 'entity', message: '缺少可核对的公司主体：需要公司名称，以及网站、邮箱、电话或 LinkedIn 其中一项。' });
-    const contact = [];
-    if (mail) contact.push('email');
-    if (phone) contact.push('phone');
-    if (wa) contact.push('whatsapp');
-    if (httpUrl(row.inquiry) || websiteInquiry(row.website)) contact.push('inquiry');
-    if (contact.length) {
-      passed.push('contact_path');
-      contact.forEach(bit => codes.push('contact:' + bit));
-    } else failures.push({ code: 'contact_path', message: '缺少可联系途径：需要邮箱、网站询盘链接，或 WhatsApp/电话。仅有官网首页不够。' });
-    if (duplicate(row, existing)) failures.push({ code: 'not_duplicate', message: '与已有客户重复（名称、网站、电话、邮箱或 LinkedIn），未写入公海。' });
-    else passed.push('not_duplicate');
-    const ok = !failures.length;
+    const entity = site.includes('.') || mail || phone || wa || link;
+    if (row.company_name.length < 2 || !entity) flags.push('missing_entity');
+    const contact = mail || phone || wa || httpUrl(row.inquiry) || websiteInquiry(row.website);
+    if (!contact) flags.push('missing_contact');
+    const duplicated = duplicate(row, existing);
     return {
-      ok,
-      rules: RULES.filter(rule => passed.includes(rule)),
-      reason_codes: ok ? codes : [],
-      failures,
-      message: ok ? '' : '未进入公海：' + failures.map(item => item.message).join('；')
+      ok: !duplicated,
+      flags,
+      message: duplicated ? '未写入公海：与已有客户重复（名称、网站、电话、邮箱或 LinkedIn）。' : ''
     };
   }
+  function buyerOutcome(row) {
+    const outcome = row.acquisition_outcome || row.outcome || '';
+    return outcome === 'buyer_hold' || outcome === 'quote_or_deal';
+  }
   function count(list) {
-    const bucket = { total: list.length, decided: 0, pending: 0, unreachable: 0, not_buyer: 0, buyer_hold: 0, quote_or_deal: 0 };
+    const bucket = { total: list.length, decided: 0, pending: 0, promoted: 0, unreachable: 0, not_buyer: 0, buyer_hold: 0, quote_or_deal: 0 };
     list.forEach(row => {
       const outcome = row.acquisition_outcome || row.outcome || '';
-      if (Object.prototype.hasOwnProperty.call(bucket, outcome) && outcome !== 'total' && outcome !== 'decided' && outcome !== 'pending') {
+      if (Object.prototype.hasOwnProperty.call(bucket, outcome) && !['total', 'decided', 'pending', 'promoted'].includes(outcome)) {
         bucket[outcome] += 1;
         bucket.decided += 1;
       } else bucket.pending += 1;
+      if (buyerOutcome(row) && (row.priority === 'A' || row.priority === 'A+')) bucket.promoted += 1;
     });
     return bucket;
   }
@@ -270,25 +248,24 @@
       }));
       [...map.keys()].sort().forEach(code => groups.push({ kind, code, ...count(map.get(code)) }));
     };
-    add('reason', client => client.pool_admission.reason_codes || []);
-    add('rule', client => client.pool_admission.rules || []);
+    add('source', client => [client.pool_admission.source].filter(Boolean));
+    add('flag', client => client.pool_admission.flags || []);
     const positive = group => group.buyer_hold + group.quote_or_deal;
     const negative = group => group.unreachable + group.not_buyer;
-    const ranked = groups.filter(group => group.kind === 'reason' && group.decided > 0);
-    const best = ranked.slice().sort((a, b) => positive(b) - positive(a) || b.quote_or_deal - a.quote_or_deal || a.code.localeCompare(b.code)).slice(0, 5)
-      .map(group => ({ code: group.code, positive: positive(group), negative: negative(group) }));
-    const miss = ranked.slice().sort((a, b) => negative(b) - negative(a) || b.unreachable - a.unreachable || a.code.localeCompare(b.code)).slice(0, 5)
-      .map(group => ({ code: group.code, positive: positive(group), negative: negative(group) }));
+    const ranked = groups.filter(group => group.kind === 'flag' && group.decided > 0);
+    const best = ranked.slice().sort((a, b) => b.promoted - a.promoted || positive(b) - positive(a) || a.code.localeCompare(b.code)).slice(0, 5)
+      .map(group => ({ code: group.code, positive: positive(group), promoted: group.promoted, negative: negative(group) }));
+    const miss = ranked.slice().sort((a, b) => negative(b) - negative(a) || a.code.localeCompare(b.code)).slice(0, 5)
+      .map(group => ({ code: group.code, positive: positive(group), promoted: group.promoted, negative: negative(group) }));
     return { ...count(rows), groups, best, miss };
   }
-  function hint(client, existing) {
-    if (client && client.pool_admitted_at) return { admitted: true, ok: true, text: '已按准入标准进入公海' };
-    const result = evaluate(client, existing || []);
-    return {
-      admitted: false,
-      ok: result.ok,
-      text: result.ok ? '今日标准预览：可以通过。已在库的客户不会因此被移出。' : '今日标准预览：' + result.message + ' 已在库的客户不会因此被移出。'
-    };
+  function hint(client) {
+    const outcome = client && client.acquisition_outcome;
+    const buyer = outcome === 'buyer_hold' || outcome === 'quote_or_deal';
+    if (client && (client.priority === 'A' || client.priority === 'A+') && buyer) return { text: '分级 A · 优先开发：跟进结果说明是买家' };
+    if (client && (client.priority === 'A' || client.priority === 'A+')) return { text: '分级 ' + client.priority + ' · 优先开发' };
+    const notes = evaluate(client || {}, []).flags.filter(flag => flag.startsWith('market:') || flag.startsWith('missing_')).map(label);
+    return { text: '公海线索，买家尚未确认' + (notes.length ? ' · ' + notes.join('、') : '') };
   }
   function label(code) { return LABELS[code] || code; }
   function outcomeLabel(code) {

@@ -123,7 +123,7 @@
   function importPage(){
     const targets=importTargets(), initial=UI.isSocialOperator?'social':'google';
     UI.render(`<div class="pagehead"><h1>批量导入客户</h1></div><section class="card pad">
-      <p>上传 Excel 或 CSV，核对字段和重复项，再选择要进入的公海。导入后客户为未分配。进入任一公海的新客户都要符合东南亚准入，不符合的行不会写入。</p>
+      <p>上传 Excel 或 CSV，核对字段和重复项，再选择要进入的公海。导入后客户为未分配。资料不完整也可以进入；与已有客户重复的行不会写入。</p>
       <p>可选目标：${targets.map(([,label])=>esc(label)).join('、')}</p>
       <input type="file" id="impf" aria-label="客户表格" accept=".csv,.xlsx,.xls"><div id="impbox"></div>
       </section>`,'client-import');

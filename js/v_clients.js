@@ -242,7 +242,7 @@
           <div class="tabp" data-p="log" ${TAB !== 'log' ? 'hidden' : ''}>
             <form id="logf" class="logf"><div class="row3"><label>日期<input type="date" name="d" value="${UI.today()}" required></label><label>方式<select name="ch">${C.CHANNELS.map(x => opt(x[0], x[1], 'email')).join('')}</select></label>
             <label>状态<select name="st"><option value="">${c.status === '未联系' ? '自动→已联系' : '不变 Keep'}</option>${C.STATUSES.filter(s => admin || s[0] !== '无效').map(s => opt(s[0], s[0] + ' ' + s[1], '')).join('')}</select></label></div>
-            ${(c.owner_id && (admin || c.owner_id === UI.ME.id) && window.PoolAdmission) ? `<label>获客结果<select name="outcome"><option value="">暂不更改</option>${PoolAdmission.OUTCOMES.map(([k, l]) => `<option value="${k}" ${c.acquisition_outcome === k ? 'selected' : ''}>${l}</option>`).join('')}</select></label><p class="muted small">领取或分配后的客户，用这四项之一记录判断，可以以后改成另一项。</p>` : ''}
+            ${(c.owner_id && (admin || c.owner_id === UI.ME.id) && window.PoolAdmission) ? `<label>获客结果<select name="outcome"><option value="">暂不更改</option>${PoolAdmission.OUTCOMES.map(([k, l]) => `<option value="${k}" ${c.acquisition_outcome === k ? 'selected' : ''}>${l}</option>`).join('')}</select></label><p class="muted small">领取或分配后四选一。选“是买家但暂不采购”或“已进入报价或成交”时，优先级升为 A · 优先开发。</p>` : ''}
             <textarea name="t" rows="3" placeholder="沟通内容：发了什么、对方怎么回、下一步… What happened / next step" required></textarea>
             <label id="logDealNote" hidden>成交说明<textarea name="deal_note" rows="2" maxlength="2000" placeholder="写明成交产品、订单编号或日期，以及后续补货安排"></textarea></label><div class="row3"><label>下次跟进 Next follow-up<input type="date" name="nx" value="${UI.today(3)}"></label><div class="qd">${[[1, '明天'], [3, '3天'], [7, '1周'], [14, '2周'], [30, '1月']].map(d => `<button type="button" class="ghost sm" data-nx="${d[0]}">${d[1]}</button>`).join('')}<button type="button" class="ghost sm" data-nx="">不设</button></div><button class="primary">添加记录</button></div></form>
             <ul class="timeline">${logs.map(l => `<li><div class="dt">${esc(l.entry_date)} <span class="chn">${esc(C.channelName(l.channel))}</span> <span>${esc(l.author_name)}</span>${l.next_follow_up ? ` <span class="muted">→ 下次 ${esc(l.next_follow_up)}</span>` : ''}</div><div>${esc(l.content).replace(/\n/g, '<br>')}</div></li>`).join('') || '<li class="muted">暂无记录 No entries yet</li>'}</ul></div>
@@ -340,9 +340,8 @@
       const box = $('#poolGate');
       if (!box || !window.PoolAdmission || !admin || !isNew || (f.owner_id && f.owner_id.value)) { if (box) box.hidden = true; return; }
       const draft = { company_name: f.company_name.value, customer_type: f.customer_type.value, country: f.country.value, website: f.website.value, company_email: f.company_email.value, company_phone: f.company_phone.value, whatsapp: f.whatsapp.value, contact_linkedin: f.contact_linkedin.value, products: [...f.querySelectorAll('[name=products]:checked')].map(x => x.value) };
-      const gate = PoolAdmission.evaluate(draft, UI.CLIENTS || []);
-      box.hidden = false; box.className = gate.ok ? 'info' : 'warn';
-      box.textContent = gate.ok ? '放入公海：符合当前准入标准。' : gate.message;
+      box.hidden = false; box.className = 'info';
+      box.textContent = '放入公海：' + PoolAdmission.hint(draft).text + '。资料不完整也可以进入，重复客户除外。';
     };
     const syncReach = () => {
       const next = { country: f.country.value.trim(), reach_channel: f.reach_channel.value };

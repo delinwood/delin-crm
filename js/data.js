@@ -146,7 +146,9 @@
       if (!row.owner_id) throw new Error('请先领取或分配客户后再记录获客结果');
       if (me.role !== 'admin' && row.owner_id !== me.id) throw new Error('只能记录自己负责客户的获客结果');
       if (!window.PoolAdmission.OUTCOMES.some(item => item[0] === outcome)) throw new Error('请选择一项获客结果');
-      row.acquisition_outcome = outcome; this.save(); return { ...c, acquisition_outcome: outcome };
+      row.acquisition_outcome = outcome;
+      if ((outcome === 'buyer_hold' || outcome === 'quote_or_deal') && !['A', 'A+'].includes(row.priority)) row.priority = 'A';
+      this.save(); return { ...c, acquisition_outcome: outcome, priority: row.priority };
     },
     async importClients(rows) {
       if (!this.admin()) throw new Error('仅管理员可导入'); const db = this.load(), me = this.me(), staged = [];
@@ -157,7 +159,7 @@
           const gate = PoolAdmission.evaluate(row, db.clients.concat(staged));
           if (!gate.ok) throw new Error(gate.message);
           row.pool_admitted_at = nowISO();
-          row.pool_admission = { rules: gate.rules, reason_codes: gate.reason_codes, source: 'import' };
+          row.pool_admission = { source: 'import', flags: gate.flags };
         }
         staged.push(row);
       }
