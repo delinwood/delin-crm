@@ -68,7 +68,7 @@
     if(!c)return;
     const data=c.data||{},ready=['review','duplicate'].includes(c.status),admin=UI.ME.role==='admin';
     const inputs=(field,label,value='',type='text',extra='')=>`<label>${esc(label)}<input name="${field}" type="${type}" value="${esc(value)}" ${extra}></label>`;
-    UI.modal(`<h2>核实候选公司</h2><p>${link(c.website,c.domain)} · ${esc(STATE[c.status])} · ${esc(time(c.checked_at))}</p><p class="warn">搜索标题只用于定位公司。请打开来源核对真实公司名称、所在国家、销售产品及B端业务；未找到采购证据的公司可以淘汰。未发现公开联系人时不要推测姓名或邮箱。</p>
+    UI.modal(`<h2>核实候选公司</h2><p>${link(c.website,c.domain)} · ${esc(STATE[c.status])} · ${esc(time(c.checked_at))}</p>${UI.outboundBar({ company_name: c.title, website: c.website, country: job.criteria.country }, 'full')}<p class="warn">搜索标题只用于定位公司。请打开来源核对真实公司名称、所在国家、销售产品及B端业务；未找到采购证据的公司可以淘汰。未发现公开联系人时不要推测姓名或邮箱。</p>
       <h3>搜索索引来源</h3>${c.sources.map(s=>`<section class="card pad"><b>${link(s.url,s.title||s.url)}</b><p>${esc(s.excerpt||(s.storage==='ephemeral'?'摘录未入库。Brave 只参与了当次排序，请打开网址核实。':'未提供摘录'))}</p><p class="muted small">${s.provider?esc(({tavily:'Tavily',firecrawl:'Firecrawl',serpapi:'SerpAPI',brave:'Brave'}[s.provider]||s.provider))+' · ':''}${esc(time(s.checked_at))}</p></section>`).join('')}
       <h3>实际读取的网页</h3>${(data.pages||[]).map(p=>`<p>${link(p.url,p.title||p.url)} · ${esc(time(p.checked_at))}</p>`).join('')||'<p>没有成功读取官网正文，请人工打开搜索来源核实。</p>'}
       <h3>产品和B端业务原文 · 均待核实</h3>${(data.evidence||[]).map(e=>`<section class="card pad"><b>${esc(e.topic)}</b><p>${esc(e.excerpt)}</p>${link(e.source_url,'原始网页')} · ${esc(time(e.checked_at))}</section>`).join('')||'<p>尚未提取到明确的产品或B端业务原文。</p>'}

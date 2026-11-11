@@ -75,7 +75,7 @@
       <section class="card pad"><p>按北京时间。包含近30天已同步的客户回复、报价有效期、已签收样品、商机下一步、追单、WhatsApp 触达和补货提醒。</p>
       <p>当前 ${items.length} 项，${[...done.values()].filter(x=>x.next_on>d&&clients.has(x.client_id)).length} 项已有未来安排。</p>
       ${items.map((item,i)=>`<article class="card pad"><b>${esc(item.title)}</b> · <a href="${path(item.client.id)}">${esc(item.client.company_name)}</a> · ${esc(UI.userName(item.client.owner_id))}
-        <p>${esc(item.desc)} · ${UI.dueBadge(item.due)}</p><div class="actions"><a class="btn ghost sm" href="${esc(item.href)}">打开处理</a><button class="ghost sm" data-work-finish="${i}">记录结果</button></div></article>`).join('')||'<p>暂无到期事项。</p>'}</section>`,'home');
+        <p>${esc(item.desc)} · ${UI.dueBadge(item.due)}</p>${UI.outboundBar(item.client)}<div class="actions"><a class="btn ghost sm" href="${esc(item.href)}">打开处理</a><button class="ghost sm" data-work-finish="${i}">记录结果</button></div></article>`).join('')||'<p>暂无到期事项。</p>'}</section>`,'home');
     $('#workReload').onclick=()=>UI.route();
     $$('[data-work-finish]').forEach(b=>b.onclick=()=>finish(items[Number(b.dataset.workFinish)],()=>UI.route()));
   }

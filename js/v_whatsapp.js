@@ -60,7 +60,7 @@
       ${gaps.length ? `<p class="warn">建议补齐：${esc(gaps.join('、'))}。已有客户缺少这些资料时，仍可保存其他修改。</p>` : '<p>号码、时区和默认联系人已填写。</p>'}
       <p>默认联系人 <b>${esc(c.contact_name || '未填写')}</b>${c.contact_title ? ' · ' + esc(c.contact_title) : ''} · ${esc(c.whatsapp || '未填 WhatsApp')} · ${esc(c.timezone || (local ? local.tz + '（按国家推断）' : '时区未设置'))}</p>
       <p>上次 WhatsApp：${esc(c.whatsapp_touch_at ? new Date(c.whatsapp_touch_at).toLocaleString('zh-CN') : '尚未登记')} · 下次：${c.whatsapp_next_on ? UI.dueBadge(c.whatsapp_next_on) : '<span class="muted">未安排</span>'}</p>
-      <div class="actions">${wa ? UI.link(wa, '💬 打开 WhatsApp', 'btn primary') : ''}<button class="ghost" type="button" data-wa-edit="${esc(c.id)}">编辑资料</button><a class="btn ghost" href="#/business/${esc(c.id)}">多位联系人</a>
+      <div class="actions">${wa ? UI.link(wa, '💬 打开 WhatsApp', 'btn primary') : ''}<button class="ghost" type="button" data-wa-edit="${esc(c.id)}">编辑资料</button><a class="btn ghost" href="#/business/${esc(c.id)}">多位联系人</a></div>${UI.outboundBar(c, 'go')}<div class="actions">
       ${canLog(c) ? `<button class="ghost" type="button" data-wa-log="${esc(c.id)}">登记本次 WhatsApp</button><button class="ghost" type="button" data-wa-plan="${esc(c.id)}">安排下次</button>` : ''}</div></section>`;
   };
   async function page() {
@@ -72,7 +72,7 @@
     const row = c => `<article class="card pad"><b><a href="#/client/${esc(c.id)}">${esc(c.company_name)}</a></b> ${UI.ltBadge(c)} ${UI.ME.role === 'admin' ? '· ' + esc(UI.userName(c.owner_id)) : ''}
       <p>${esc(c.contact_name || '未填默认联系人')} · ${esc(c.whatsapp || '未填号码')} · ${esc([c.city, c.country].filter(Boolean).join(', '))}</p>
       <p>上次 ${esc(c.whatsapp_touch_at ? new Date(c.whatsapp_touch_at).toLocaleString('zh-CN') : '尚未登记')} · 下次 ${c.whatsapp_next_on ? UI.dueBadge(c.whatsapp_next_on) : '未安排'}${missing(c).length ? ' · 待补 ' + esc(missing(c).join('、')) : ''}</p>
-      <div class="actions">${UI.wa(c.whatsapp, c) ? UI.link(UI.wa(c.whatsapp, c), '打开 WhatsApp', 'btn ghost sm') : ''}${canLog(c) ? `<button class="ghost sm" type="button" data-wa-log="${esc(c.id)}">登记本次</button><button class="ghost sm" type="button" data-wa-plan="${esc(c.id)}">安排下次</button>` : ''}</div></article>`;
+      ${UI.outboundBar(c)}<div class="actions">${UI.wa(c.whatsapp, c) ? UI.link(UI.wa(c.whatsapp, c), '打开 WhatsApp', 'btn ghost sm') : ''}${canLog(c) ? `<button class="ghost sm" type="button" data-wa-log="${esc(c.id)}">登记本次</button><button class="ghost sm" type="button" data-wa-plan="${esc(c.id)}">安排下次</button>` : ''}</div></article>`;
     UI.render(`<div class="pagehead"><h1>WhatsApp 触达</h1><a class="btn ghost" href="#/home">工作台</a></div>
       <section class="card pad"><p>中东客户和首选 WhatsApp 的客户走同一条人工流程：补齐号码、时区、默认联系人，对方上班时再打开聊天，然后把本次沟通和下次日期记在 CRM。现有“打开 WhatsApp”仍然只跳到 wa.me。</p>
       <p class="muted small">到期 ${due.length} 家 · 已选 WhatsApp 但还没安排 ${needs.length} 家 · 资料未齐 ${gaps.length} 家。</p></section>

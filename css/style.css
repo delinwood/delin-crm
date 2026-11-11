@@ -93,6 +93,7 @@ td[data-l="电话"],td[data-l="最近跟进"]{white-space:nowrap}
 .grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}.grid2.wide-left{grid-template-columns:1.5fr 1fr;margin-top:0}.grid2+.grid2{margin-top:16px}
 .todo{list-style:none;margin:0;padding:0}.todo li{padding:10px 0;border-bottom:1px solid #eef1f5}.todo li:last-child{border:0}.todo .qa{margin-top:6px}
 .qa{display:flex;gap:6px;flex-wrap:wrap;align-items:center}.small{font-size:12px}.right{text-align:right}.red{color:var(--danger);font-weight:700}
+.outbound{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:6px}.outbound .btn{padding:3px 8px;font-size:12px}
 .due{font-size:12px;border-radius:6px;padding:1px 7px;background:#eef4ff;color:#28467a;white-space:nowrap}.due.today{background:#fff4dc;color:#946200;font-weight:700}.due.over{background:#fde8e6;color:#b42318;font-weight:700}.due.none{background:#f2f4f7;color:#8a94a3}
 .lt{font-size:11.5px;color:var(--muted);white-space:nowrap}.lt.on{color:#16753a;font-weight:600}
 .tag{display:inline-block;background:#f1ecff;color:#5b3fb3;border-radius:6px;padding:0 7px;font-size:11.5px;margin:0 3px 0 0;white-space:nowrap}

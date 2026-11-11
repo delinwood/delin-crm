@@ -171,7 +171,7 @@
     $('#cnt').innerHTML = `共 <b>${all.length}</b> 家客户 <small>${all.length} clients</small>`;
     $('#rows').innerHTML = rows.map(c => { const lt = UI.localTime(c); return `<tr data-id="${esc(c.id)}" class="${SEL.has(c.id) ? 'sel' : ''}">
       <td class="ck" data-l=""><input type="checkbox" data-sel="${esc(c.id)}" ${SEL.has(c.id) ? 'checked' : ''}></td>
-      <td data-l="公司"><a class="cname" href="#/client/${esc(c.id)}">${esc(c.company_name)}</a>${c.website ? `<a class="sub" href="${esc(UI.url(c.website))}" target="_blank" rel="noopener">${esc(U.domain(c.website))}</a>` : ''}<div>${UI.tags(c.tags)}</div></td>
+      <td data-l="公司"><a class="cname" href="#/client/${esc(c.id)}">${esc(c.company_name)}</a>${c.website ? `<a class="sub" href="${esc(UI.url(c.website))}" target="_blank" rel="noopener">${esc(U.domain(c.website))}</a>` : ''}<div>${UI.tags(c.tags)}</div>${UI.outboundBar(c)}</td>
       <td data-l="类型">${esc(C.typeCN(c.customer_type))}</td>
       <td data-l="地区">${esc([c.city, c.state, c.country].filter(Boolean).join(', '))}</td>
       <td data-l="产品"><div class="chips">${UI.chips(c.products)}</div></td>
@@ -222,7 +222,7 @@
       <section class="card hero"><div class="hl"><h1>${esc(c.company_name)}</h1>
         <div class="meta">${esc(C.typeName(c.customer_type))} · ${esc([c.city, c.state, c.country].filter(Boolean).join(', '))} ${UI.ltBadge(c)}</div>
         <div class="badges">${UI.prBadge(c.priority)} ${UI.stBadge(c.status)} ${c.next_follow_up ? '下次跟进 ' + UI.dueBadge(c.next_follow_up) : '<span class="due none">未设下次跟进</span>'} <span class="owner">负责人 <b>${esc(UI.userName(c.owner_id))}</b></span> ${UI.tags(c.tags)}</div></div>
-        <div class="quick">${c.company_phone ? UI.link(UI.tel(c.company_phone, c), '📞 拨打', 'btn ghost') : ''}${wa ? UI.link(wa, '💬 WhatsApp', 'btn ghost') : ''}${c.company_email ? UI.link('mailto:' + c.company_email, '✉️ 邮件', 'btn ghost') : ''}${c.website ? UI.link(UI.url(c.website), '🌐 网站', 'btn ghost') : ''}${c.contact_linkedin ? UI.link(UI.url(c.contact_linkedin), 'in LinkedIn', 'btn ghost') : ''}<a class="btn primary" href="#/templates/${esc(c.id)}">✍️ 写开发信</a></div></section>
+        <div class="quick">${UI.outboundBar(c)}<a class="btn primary" href="#/templates/${esc(c.id)}">✍️ 写开发信</a></div></section>
       ${usWarn ? '<div class="warn">⚠️ 美国只开发墙板、格栅、木饰面及吸音板；不开发任何地板（含SPC）</div>' : ''}
       ${lt && !lt.work ? `<div class="info">🌙 客户当地现在是 ${esc(lt.text)}，非工作时间——建议邮件或定时发送，电话/WhatsApp 等对方上班再联系。</div>` : ''}
       ${UI.whatsappCard ? UI.whatsappCard(c) : ''}
@@ -234,7 +234,7 @@
           <h3>业务 Business</h3>${c.status==='成交' ? kv('成交说明',esc(c.deal_note||'历史成交客户，请在编辑资料中补填')) : ''}${kv('客户标记', UI.attentionControl(c))}${kv('无效原因', esc(c.invalid_reason || ''))}${kv('追单提醒', esc(UI.emailDueDate(c)) + ' ' + UI.chaseButton(c))}${kv('匹配产品 Products', `<div class="chips">${UI.chips(c.products)}</div>`)}${kv('标签 Tags', UI.tags(c.tags))}${kv('Apollo 搜索条件', esc(c.apollo_criteria))}
           ${kv('备注 Notes', esc(c.notes).replace(/\n/g, '<br>'))}${kv('来源/核实 Source', esc(c.source_note).replace(/(https?:\/\/[^\s;,)]+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>'))}
           <h3>海关核验 <small>Customs check</small></h3><p class="muted small">新标签页打开免费网站，不嵌入、不调用接口。有公司名时 ImportYeti、PortExaminer 会带上公司名；CNUData 打开首页。进口证据摘要、证据 URL、核实日写在来源/核实说明。</p>${UI.customsLinks?.(c.company_name) || ''}
-          <h3>公司核实 <small>Company check</small></h3><p class="muted small">新标签页打开公开检索和登记入口。有公司名时带入搜索；有网站时 Hunter 按域名查找公开邮箱。阿联酋、沙特只打开官网，请在官方页面填写公司名或 CR。不嵌入、不调用接口。</p>${UI.verifyLinks?.(c.company_name, { website: c.website, country: c.country }) || ''}
+          <h3>公司核实 <small>Company check</small></h3><p class="muted small">新标签页打开公开检索和登记入口。有公司名时带入搜索；有联系人时 LinkedIn 按人名找人；有网站时 Hunter 按域名查找公开邮箱。阿联酋、沙特只打开官网，请在官方页面填写公司名或 CR。不嵌入、不调用接口。</p>${UI.verifyLinks?.(c.company_name, { website: c.website, country: c.country, person: c.contact_name }) || ''}
           ${kv('创建 Created', esc((c.created_at || '').slice(0, 10)) + ' · ' + esc(UI.userName(c.created_by)))}
         </section></div>
         <div><section class="card pad">
