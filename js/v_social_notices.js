@@ -31,14 +31,16 @@
       paintBadge();
     }finally{if(pollUser===user)pending=false;}
   }
+  UI.dailyClaimCap=300;
   UI.showDailyClaims=async()=>{
     const nodes=[...document.querySelectorAll('[data-daily-claim]')];
     if(!nodes.length||DB.mode==='demo')return;
     try{
-      const remaining=await rpc('crm_daily_claim_remaining');
+      const [remaining,cap]=await Promise.all([rpc('crm_daily_claim_remaining'),rpc('crm_daily_claim_cap')]);
+      const limit=Number.isInteger(cap)&&cap>0?cap:UI.dailyClaimCap;
       if(!Number.isInteger(remaining))return;
       for(const node of nodes)if(node.isConnected)
-        node.textContent='今日还可自领 '+remaining+'／30 家（北京时间，各公海合计）。';
+        node.textContent='今日还可自领 '+remaining+'／'+limit+' 家（北京时间，各公海合计）。';
     }catch{/* The displayed policy remains visible. */}
   };
   UI.sendSocialNotice=lead=>{
