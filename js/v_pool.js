@@ -59,6 +59,64 @@
     if (DB.mode==='demo') { const db=DB.load(); db.pool_events ||= []; db.pool_events.push({client_id:id,company_name:r.company_name,action:'claim',actor_id:DB.me().id,at:new Date().toISOString()}); DB.save(); }
     return r;
   };
+  DB.poolUnclaimedAction = async (id, action, reason) => {
+    if (DB.mode !== 'demo') return DB.chk(await DB.init().rpc('crm_pool_unclaimed_action', { p_client_id: id, p_action: action, p_reason: reason }));
+    const db = DB.load(), me = DB.me(), c = db.clients.find(x => x.id === id);
+    const tracked = db.client_tracking?.[id];
+    if (!me?.active || me.role !== 'sales' || UI.isSocialOperator) throw new Error('只有启用的业务员可以处理未领取的公海客户');
+    if (action !== 'invalid' && action !== 'secondary') throw new Error('只能标记为无效客户或放入第二公海');
+    if (!c) throw new Error('客户不存在，请刷新公海');
+    if (c.owner_id) throw new Error('客户已被领取，请刷新公海');
+    if (c.status === '成交') throw new Error('已成交客户不可从公海处理');
+    if (c.status === '无效' || tracked?.attention_level === '无效' || c.attention_level === '无效') throw new Error('无效客户请保留在无效客户组，由老板审查');
+    if (action === 'invalid') {
+      if (!String(reason || '').trim()) throw new Error('请填写无效原因');
+      db.client_tracking = db.client_tracking || {};
+      const previous = tracked?.attention_level || '普通';
+      db.client_tracking[id] = { ...(tracked || {}), client_id: id, attention_level: '无效', invalid_reason: String(reason).trim(), marked_by: me.id, marked_at: new Date().toISOString(), reminder_owner_id: tracked?.reminder_owner_id ?? null };
+      DB.audit(id, 'attention', { attention_level: [previous, '无效'], invalid_reason: String(reason).trim() });
+      DB.save();
+      return;
+    }
+    const text = String(reason || '');
+    if (text.trim().length < 2 || text.length > 2000) throw new Error('请填写2至2000字的退回原因');
+    const currentKind = db.pool_metadata?.[id]?.pool_kind || c.pool_kind || 'initial';
+    if (currentKind === 'secondary') throw new Error('客户已在第二公海，请刷新');
+    db.pool_metadata = db.pool_metadata || {};
+    db.pool_events = db.pool_events || [];
+    db.pool_metadata[id] = { client_id: id, pool_kind: 'secondary', return_reason: text.trim(), previous_owner: null, returned_at: new Date().toISOString() };
+    db.pool_events.push({ client_id: id, company_name: c.company_name, action: 'release', actor_id: me.id, previous_owner: null, pool_kind: 'secondary', reason: text.trim(), at: new Date().toISOString() });
+    DB.save();
+  };
+  async function disposeUnclaimed(c, action) {
+    const invalid = action === 'invalid';
+    UI.modal(`<h2>${invalid ? '标记为无效客户' : '放入第二公海'}</h2><p><b>${esc(c.company_name)}</b>。客户保持未分配，不会领到你名下，也不占用今日自领额度。</p><p>${invalid ? '请填写无效原因。确认后该客户离开公海，进入无效客户组，由老板审查。' : '请填写放入第二公海的原因。确认后可在第二公海查看。'}</p><form><label>${invalid ? '无效原因' : '原因'}<textarea name="reason" required ${invalid ? '' : 'minlength="2" maxlength="2000"'}></textarea></label><button class="primary">${invalid ? '确认标记为无效' : '确认放入第二公海'}</button><p role="status"></p></form>`, (modal, close) => {
+      const form = modal.querySelector('form');
+      form.onsubmit = async event => {
+        event.preventDefault();
+        const raw = form.querySelector('[name=reason]').value, trimmed = raw.trim();
+        const status = form.querySelector('[role=status]');
+        if (invalid ? !trimmed : trimmed.length < 2 || raw.length > 2000) {
+          status.textContent = invalid ? '请填写无效原因' : '请填写2至2000字的退回原因';
+          return;
+        }
+        const button = form.querySelector('button');
+        button.disabled = true;
+        try {
+          await DB.poolUnclaimedAction(c.id, action, invalid ? trimmed : raw);
+          close();
+          await UI.refresh();
+          await UI.route();
+          UI.toast(invalid ? '已标记为无效客户，未领取、未占用今日额度' : '已放入第二公海，未领取、未占用今日额度');
+        } catch (error) {
+          close();
+          UI.toast(error.message, 1);
+          await UI.refresh().catch(() => {});
+          await UI.route().catch(refreshError => UI.toast(refreshError.message, true));
+        }
+      };
+    });
+  }
   const poolDate = at => at ? new Date(at).toLocaleString('zh-CN',{timeZone:'Asia/Shanghai'}) : '';
   async function myHistory() {
     try {
@@ -107,9 +165,9 @@
       +(canArchive?'<button class="ghost sm danger" data-batch-action="trash">批量移入回收站</button>':'');
     UI.render(`<div class="pagehead"><h1>${secondary?'第二公海 · 退回客户':'谷歌客户公海 · 新线索'} <small>${list.length} 家</small></h1><div class="actions"><a class="btn ${secondary?'ghost':'primary'}" href="#/pool">谷歌客户公海 ${available.filter(c=>(c.pool_kind||'initial')==='initial').length}</a><a class="btn ${secondary?'primary':'ghost'}" href="#/second-pool">第二公海 ${available.filter(c=>c.pool_kind==='secondary').length}</a><button class="ghost" id="myPoolHistory">我的退回记录</button><button class="ghost" id="poolRefresh">刷新</button></div></div>
       <section class="card pad"><p>${secondary?'这里是业务员主动退回的客户，可查看原因后重新领取。':'这里是尚未分配的客户，可领取后开始跟进。'} 无效客户留在无效客户组。领取采用服务器锁定，先领取成功者获得归属。</p><label>搜索公司、国家、产品或退回原因<input id="poolSearch" value="${esc(filter)}"></label>
-      ${!admin?'<p data-daily-claim role="status">每日最多自领30家，公海合并计数（北京时间）。</p>':''}${useBatch?UI.batchTools(actions):''}</section>
+      ${!admin?`<p data-daily-claim role="status">每日最多自领${UI.dailyClaimCap}家，公海合并计数（北京时间）。</p><p class="muted small">未领取的客户可以标记为无效，或放入第二公海。这两项都不领取、不占用今日额度；若当时已被他人领走，操作会拒绝并刷新。</p>`:''}${useBatch?UI.batchTools(actions):''}</section>
       ${renderGate(gateStats)}
-      <section class="card tbl"><table><thead><tr><th>选择</th><th>公司</th><th>国家 / 城市</th><th>产品</th><th>最近退回</th><th>操作</th></tr></thead><tbody>${paged.map(c=>`<tr><td>${useBatch?UI.batchCheckbox(c.id,c.company_name):''}</td><td><a href="#/client/${esc(c.id)}">${esc(c.company_name)}</a><p class="muted small">${esc(U.domain(c.website))}</p>${hint(c)}${UI.outboundBar(c)}</td><td>${esc([c.country,c.city].filter(Boolean).join(' / '))}</td><td>${UI.chips(c.products)}</td><td>${c.returned_at?`${c.previous_owner===UI.ME.id?'<strong>我曾跟进 · </strong>':''}${esc(c.return_reason||'已退回')}<p class="muted small">${esc(UI.userName(c.previous_owner))} · ${esc(poolDate(c.returned_at))}</p>`:'—'}</td><td>${!admin?`<button class="primary sm" data-pool-claim="${esc(c.id)}">领取为我的客户</button>`:''}<button class="ghost sm" data-pool-history="${esc(c.id)}">流转记录</button></td></tr>`).join('')||'<tr><td colspan="6">暂无符合条件的客户</td></tr>'}</tbody></table></section>
+      <section class="card tbl"><table><thead><tr><th>选择</th><th>公司</th><th>国家 / 城市</th><th>产品</th><th>最近退回</th><th>操作</th></tr></thead><tbody>${paged.map(c=>`<tr><td>${useBatch?UI.batchCheckbox(c.id,c.company_name):''}</td><td><a href="#/client/${esc(c.id)}">${esc(c.company_name)}</a><p class="muted small">${esc(U.domain(c.website))}</p>${hint(c)}${UI.outboundBar(c)}</td><td>${esc([c.country,c.city].filter(Boolean).join(' / '))}</td><td>${UI.chips(c.products)}</td><td>${c.returned_at?`${c.previous_owner===UI.ME.id?'<strong>我曾跟进 · </strong>':''}${esc(c.return_reason||'已退回')}<p class="muted small">${esc(UI.userName(c.previous_owner))} · ${esc(poolDate(c.returned_at))}</p>`:'—'}</td><td>${!admin?`<button class="primary sm" data-pool-claim="${esc(c.id)}">领取为我的客户</button><button class="ghost sm" data-pool-invalid="${esc(c.id)}">标记为无效客户</button>${secondary?'':`<button class="ghost sm" data-pool-secondary="${esc(c.id)}">放入第二公海</button>`}`:''}<button class="ghost sm" data-pool-history="${esc(c.id)}">流转记录</button></td></tr>`).join('')||'<tr><td colspan="6">暂无符合条件的客户</td></tr>'}</tbody></table></section>
       <div class="actions"><button class="ghost" id="poolPrev" ${page===0?'disabled':''}>上一页</button><span>${page+1} / ${Math.max(1,Math.ceil(list.length/50))}</span><button class="ghost" id="poolNext" ${(page+1)*50>=list.length?'disabled':''}>下一页</button></div>`,secondary?'second-pool':'pool');
     UI.showDailyClaims?.();
     $('#myPoolHistory').onclick=myHistory;
@@ -122,6 +180,8 @@
     $$('[data-pool-claim]').forEach(b=>b.onclick=async()=>{const c=paged.find(row=>row.id===b.dataset.poolClaim);
       if(c?.previous_owner===UI.ME.id&&!confirm('你之前跟进过这个客户。请核对流转记录后确认是否重新领取。'))return;
       b.disabled=true;try {await DB.claimClient(b.dataset.poolClaim);await refresh();UI.toast('领取成功，可在客户列表查看');}catch(e){UI.toast(e.message,1);await refresh().catch(error=>UI.toast(error.message,true));}});
+    $$('[data-pool-invalid]').forEach(b=>b.onclick=()=>disposeUnclaimed(paged.find(row=>row.id===b.dataset.poolInvalid),'invalid'));
+    $$('[data-pool-secondary]').forEach(b=>b.onclick=()=>disposeUnclaimed(paged.find(row=>row.id===b.dataset.poolSecondary),'secondary'));
     if(!useBatch)return;
     UI.bindBatch({selected,ids:list.map(c=>c.id),pageIds:paged.map(c=>c.id)});
     $$('[data-batch-action]').forEach(button=>button.onclick=()=>{
@@ -152,6 +212,11 @@
   const detail=UI.views.client.render;
   UI.views.client.render=async id=>{const current=(UI.viewCurrent?.() || (() => true));await detail(id);if(!current())return;const c=UI.CLIENTS.find(x=>x.id===id),target=document.querySelector('.hero .quick');if(!c||!target)return;
     if(c.owner_id&&c.status!=='成交'&&(UI.ME.role==='admin'||c.owner_id===UI.ME.id)&&!UI.isInvalid(c)){const b=document.createElement('button');b.className='btn ghost';b.textContent='退回第二公海';b.onclick=()=>release(c);target.append(b);}
+    const boss=UI.ME.role==='admin'&&UI.ME.username==='boss';
+    if(!c.owner_id&&!boss&&!UI.isSocialOperator&&c.status!=='成交'&&!UI.isInvalid(c)){
+      const invalid=document.createElement('button');invalid.className='btn ghost';invalid.textContent='标记为无效客户';invalid.onclick=()=>disposeUnclaimed(c,'invalid');target.append(invalid);
+      if((c.pool_kind||'initial')!=='secondary'){const second=document.createElement('button');second.className='btn ghost';second.textContent='放入第二公海';second.onclick=()=>disposeUnclaimed(c,'secondary');target.append(second);}
+    }
     const b=document.createElement('button');b.className='btn ghost';b.textContent='领取 / 退回记录';b.onclick=()=>history(id);target.append(b);
   };
 })();
